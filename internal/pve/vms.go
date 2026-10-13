@@ -44,27 +44,33 @@ func (c *Client) VMConfig(ctx context.Context, node string, vmid int) (map[strin
 	return cfg, err
 }
 
-// SupportsSpice reports whether a guest's display adapter exposes a SPICE server.
-func SupportsSpice(cfg map[string]any) bool {
+// displayType returns the display adapter type from a guest's vga property,
+// which is either the keyless element or "type=", e.g. "qxl2,memory=32" or
+// "memory=32,type=virtio". Proxmox's default (no vga set) is "std".
+func displayType(cfg map[string]any) string {
 	vga, _ := cfg["vga"].(string)
-	// The display type is either the keyless element or "type=" in the
-	// property string, e.g. "qxl2,memory=32" or "memory=32,type=qxl".
 	for part := range strings.SplitSeq(vga, ",") {
 		key, value, hasKey := strings.Cut(part, "=")
 		if !hasKey {
-			value = key
-		} else if key != "type" {
-			continue
+			return key
+		} else if key == "type" {
+			return value
 		}
-		return strings.HasPrefix(value, "qxl")
 	}
-	return false
+	return "std"
+}
+
+// SupportsSpice reports whether a guest's display adapter exposes a SPICE
+// server. Proxmox enables SPICE for qxl and virtio displays.
+func SupportsSpice(cfg map[string]any) bool {
+	typ := displayType(cfg)
+	return strings.HasPrefix(typ, "qxl") || strings.HasPrefix(typ, "virtio")
 }
 
 // HasTablet reports whether a guest has a USB tablet, which gives VNC an
 // absolute pointer. Without one, VNC falls back to a relative PS/2 mouse that
-// drifts from the local cursor. Proxmox omits the tablet by default on SPICE
-// (qxl) guests, as the SPICE agent positions the pointer there instead.
+// drifts from the local cursor. Proxmox omits the tablet by default on qxl
+// guests (not virtio ones), as the SPICE agent positions the pointer there.
 func HasTablet(cfg map[string]any) bool {
 	switch v := cfg["tablet"].(type) {
 	case float64:
@@ -72,8 +78,8 @@ func HasTablet(cfg map[string]any) bool {
 	case string:
 		return v != "0"
 	}
-	vga, _ := cfg["vga"].(string)
-	return !SupportsSpice(cfg) && !strings.HasPrefix(vga, "serial")
+	typ := displayType(cfg)
+	return !strings.HasPrefix(typ, "qxl") && !strings.HasPrefix(typ, "serial")
 }
 
 func vmPath(node string, vmid int, rest ...string) string {

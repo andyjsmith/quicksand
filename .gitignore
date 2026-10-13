@@ -6,3 +6,7 @@ config.json
 /quicksand
 web/node_modules/
 web/dist/
+
+# Database
+quicksand.db
+quicksand.db-*

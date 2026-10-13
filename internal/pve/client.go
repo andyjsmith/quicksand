@@ -91,7 +91,7 @@ func (e *Error) Error() string {
 func (c *Client) do(ctx context.Context, method, path string, form url.Values, out any) error {
 	u := c.base.JoinPath("/api2/json", path)
 	var body io.Reader
-	if method == http.MethodGet {
+	if method == http.MethodGet || method == http.MethodDelete {
 		u.RawQuery = form.Encode()
 	} else if form != nil {
 		body = strings.NewReader(form.Encode())

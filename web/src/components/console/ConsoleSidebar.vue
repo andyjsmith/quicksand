@@ -197,7 +197,7 @@ const soundOn = computed({
           <p class="text-muted-foreground flex items-center gap-1.5 text-xs">
             <span class="inline-block size-2 rounded-full" :class="statusColor" />
             {{ statusLabel }}
-            <template v-if="vm"> · VM {{ vm.vmid }} on {{ vm.node }}</template>
+            <template v-if="vm"> · {{ vm.templateName }}</template>
           </p>
         </div>
         <Button variant="ghost" size="icon-sm" title="Close panel" @click="open = false">
@@ -239,7 +239,7 @@ const soundOn = computed({
             </Button>
           </div>
           <Button variant="ghost" as-child class="justify-start">
-            <RouterLink to="/"><ArrowLeft /> All virtual machines</RouterLink>
+            <RouterLink to="/"><ArrowLeft /> Back to machines</RouterLink>
           </Button>
         </SidebarSection>
         <Separator />

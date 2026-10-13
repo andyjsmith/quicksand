@@ -1,238 +1,137 @@
-// Package httpapi exposes Quicksand's REST and websocket API.
+// Package httpapi exposes Quicksand's REST, event stream and websocket API.
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
-	"net"
 	"net/http"
-	"strconv"
-	"sync"
+	"net/url"
 	"time"
 
-	"github.com/coder/websocket"
-
+	"quicksand/internal/auth"
+	"quicksand/internal/config"
 	"quicksand/internal/console"
 	"quicksand/internal/pve"
+	"quicksand/internal/store"
+	"quicksand/internal/vms"
 )
 
 type Server struct {
+	cfg      *config.Config
 	pve      *pve.Client
+	store    *store.Store
+	sessions *auth.Sessions
+	vms      *vms.Service
+	hub      *vms.Hub
 	consoles *console.Manager
-	openers  map[console.Protocol]opener
 	mux      *http.ServeMux
 }
 
-// opener fetches a ticket for a guest and registers a console session for it.
-type opener func(ctx context.Context, node string, vmid int) (*console.Session, error)
+type Deps struct {
+	Config   *config.Config
+	PVE      *pve.Client
+	Store    *store.Store
+	Sessions *auth.Sessions
+	VMs      *vms.Service
+	Hub      *vms.Hub
+	// Static, if non-nil, is the built web client served for non-API paths.
+	Static fs.FS
+}
 
-// New builds the API server. static, if non-nil, is served for all non-API paths.
-func New(client *pve.Client, static fs.FS) *Server {
+func New(d Deps) *Server {
 	s := &Server{
-		pve: client,
-		// Proxmox tickets are valid for about 30 seconds; new connections
-		// for a session are refused after that.
+		cfg: d.Config, pve: d.PVE, store: d.Store, sessions: d.Sessions, vms: d.VMs, hub: d.Hub,
+		// Proxmox console tickets are valid for about 30 seconds; new
+		// connections for a session are refused after that.
 		consoles: console.NewManager(30 * time.Second),
 		mux:      http.NewServeMux(),
 	}
-	s.openers = map[console.Protocol]opener{
-		console.Spice: s.openSpice,
-		console.VNC:   s.openVNC,
-	}
+	user := func(h http.HandlerFunc) http.Handler { return s.requireUser(h) }
+	admin := func(h http.HandlerFunc) http.Handler { return s.requireUser(s.requireAdmin(h)) }
 
-	s.mux.HandleFunc("GET /api/vms", s.handleListVMs)
-	s.mux.HandleFunc("GET /api/vms/{node}/{vmid}", s.handleGetVM)
-	s.mux.HandleFunc("POST /api/vms/{node}/{vmid}/console", s.handleCreateConsole)
-	s.mux.HandleFunc("GET /api/console/{id}/ws", s.handleConsoleWS)
+	s.mux.HandleFunc("POST /api/auth/login", s.handleLogin)
+	s.mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	s.mux.Handle("GET /api/auth/me", user(s.handleMe))
+	s.mux.Handle("POST /api/auth/password", user(s.handleChangePassword))
+
+	s.mux.Handle("GET /api/templates", user(s.handleTemplates))
+	s.mux.Handle("GET /api/networks", user(s.handleNetworks))
+	s.mux.Handle("GET /api/vms", user(s.handleListVMs))
+	s.mux.Handle("POST /api/vms", user(s.handleDeploy))
+	s.mux.Handle("GET /api/vms/{id}", user(s.handleGetVM))
+	s.mux.Handle("DELETE /api/vms/{id}", user(s.handleDestroy))
+	s.mux.Handle("POST /api/vms/{id}/power", user(s.handlePower))
+	s.mux.Handle("POST /api/vms/{id}/console", user(s.handleCreateConsole))
+	s.mux.Handle("GET /api/console/{id}/ws", user(s.handleConsoleWS))
+	s.mux.Handle("GET /api/events", user(s.handleEvents))
+
+	s.mux.Handle("GET /api/admin/users", admin(s.handleListUsers))
+	s.mux.Handle("POST /api/admin/users", admin(s.handleCreateUser))
+	s.mux.Handle("PATCH /api/admin/users/{id}", admin(s.handleUpdateUser))
+	s.mux.Handle("DELETE /api/admin/users/{id}", admin(s.handleDeleteUser))
+
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("not found"))
 	})
-	if static != nil {
-		s.mux.Handle("/", spaHandler(static))
+	if d.Static != nil {
+		s.mux.Handle("/", spaHandler(d.Static))
 	}
 	return s
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		writeError(w, http.StatusForbidden, errors.New("cross-origin request refused"))
+		return
+	}
 	s.mux.ServeHTTP(w, r)
 }
 
-// VM is a guest as presented to the web client.
-type VM struct {
-	VMID     int                `json:"vmid"`
-	Name     string             `json:"name"`
-	Node     string             `json:"node"`
-	Status   string             `json:"status"`
-	Template bool               `json:"template"`
-	CPU      float64            `json:"cpu"`
-	MaxCPU   int                `json:"maxcpu"`
-	Mem      int64              `json:"mem"`
-	MaxMem   int64              `json:"maxmem"`
-	Uptime   int64              `json:"uptime"`
-	Consoles []console.Protocol `json:"consoles"`
-	// AbsolutePointer is false when the guest has no USB tablet, so VNC can
-	// only drive a relative mouse that drifts from the local cursor.
-	AbsolutePointer bool `json:"absolutePointer"`
+// sameOrigin refuses state-changing requests from other origins. Session
+// cookies are SameSite=Strict as well; this is defence in depth.
+func sameOrigin(r *http.Request) bool {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	return err == nil && u.Host == r.Host
 }
 
-func (s *Server) handleListVMs(w http.ResponseWriter, r *http.Request) {
-	vms, err := s.pve.ListVMs(r.Context())
-	if err != nil {
-		writePVEError(w, err)
-		return
-	}
-	out := make([]VM, len(vms))
-	var wg sync.WaitGroup
-	for i, vm := range vms {
-		wg.Go(func() { out[i] = s.describe(r.Context(), vm) })
-	}
-	wg.Wait()
-	writeJSON(w, http.StatusOK, out)
-}
-
-func (s *Server) handleGetVM(w http.ResponseWriter, r *http.Request) {
-	node, vmid, ok := guestFromPath(w, r)
-	if !ok {
-		return
-	}
-	vms, err := s.pve.ListVMs(r.Context())
-	if err != nil {
-		writePVEError(w, err)
-		return
-	}
-	for _, vm := range vms {
-		if vm.Node == node && vm.VMID == vmid {
-			writeJSON(w, http.StatusOK, s.describe(r.Context(), vm))
+func (s *Server) requireUser(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, ok := s.sessions.User(r)
+		if !ok {
+			writeError(w, http.StatusUnauthorized, errors.New("not signed in"))
 			return
 		}
-	}
-	writeError(w, http.StatusNotFound, errors.New("vm not found"))
-}
-
-// describe adds the console protocols a guest supports, preferred first.
-func (s *Server) describe(ctx context.Context, vm pve.VM) VM {
-	out := VM{
-		VMID: vm.VMID, Name: vm.Name, Node: vm.Node, Status: vm.Status,
-		Template: vm.Template == 1, CPU: vm.CPU, MaxCPU: vm.MaxCPU,
-		Mem: vm.Mem, MaxMem: vm.MaxMem, Uptime: vm.Uptime,
-		Consoles: []console.Protocol{console.VNC},
-		// Assume the common case if the config can't be read.
-		AbsolutePointer: true,
-	}
-	cfg, err := s.pve.VMConfig(ctx, vm.Node, vm.VMID)
-	if err != nil {
-		slog.Warn("read vm config", "node", vm.Node, "vmid", vm.VMID, "err", err)
-		return out
-	}
-	if pve.SupportsSpice(cfg) {
-		out.Consoles = []console.Protocol{console.Spice, console.VNC}
-	}
-	out.AbsolutePointer = pve.HasTablet(cfg)
-	return out
-}
-
-type createConsoleRequest struct {
-	Protocol console.Protocol `json:"protocol"`
-}
-
-type createConsoleResponse struct {
-	ID       string           `json:"id"`
-	Protocol console.Protocol `json:"protocol"`
-	Password string           `json:"password"`
-	Title    string           `json:"title"`
-	// Path is the websocket path the browser client connects to.
-	Path string `json:"path"`
-}
-
-func (s *Server) handleCreateConsole(w http.ResponseWriter, r *http.Request) {
-	node, vmid, ok := guestFromPath(w, r)
-	if !ok {
-		return
-	}
-	var req createConsoleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	open, ok := s.openers[req.Protocol]
-	if !ok {
-		writeError(w, http.StatusBadRequest, errors.New("unsupported console protocol"))
-		return
-	}
-	sess, err := open(r.Context(), node, vmid)
-	if err != nil {
-		writePVEError(w, err)
-		return
-	}
-	slog.Info("console session created", "node", node, "vmid", vmid, "protocol", sess.Protocol)
-	writeJSON(w, http.StatusCreated, createConsoleResponse{
-		ID:       sess.ID,
-		Protocol: sess.Protocol,
-		Password: sess.Password,
-		Title:    sess.Title,
-		Path:     "/api/console/" + sess.ID + "/ws",
+		next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), u)))
 	})
 }
 
-func (s *Server) openSpice(ctx context.Context, node string, vmid int) (*console.Session, error) {
-	t, err := s.pve.SpiceProxy(ctx, node, vmid)
-	if err != nil {
-		return nil, err
+func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !auth.FromContext(r.Context()).IsAdmin {
+			writeError(w, http.StatusForbidden, errors.New("administrators only"))
+			return
+		}
+		next(w, r)
 	}
-	dial := func(ctx context.Context) (net.Conn, error) { return pve.DialSpice(ctx, t) }
-	return s.consoles.Create(console.Spice, t.Password, t.Title, 0, dial), nil
 }
 
-func (s *Server) openVNC(ctx context.Context, node string, vmid int) (*console.Session, error) {
-	t, err := s.pve.VNCProxy(ctx, node, vmid)
-	if err != nil {
-		return nil, err
+func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body"))
+		return false
 	}
-	dial := func(ctx context.Context) (net.Conn, error) { return s.pve.DialVNC(ctx, node, vmid, t) }
-	// vncproxy serves exactly one connection.
-	title := "VM " + strconv.Itoa(vmid)
-	return s.consoles.Create(console.VNC, t.Password, title, 1, dial), nil
-}
-
-func (s *Server) handleConsoleWS(w http.ResponseWriter, r *http.Request) {
-	// Dial upstream before accepting so failures surface as HTTP errors.
-	dialCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	sess, upstream, err := s.consoles.Open(dialCtx, r.PathValue("id"))
-	cancel()
-	switch {
-	case errors.Is(err, console.ErrNotFound):
-		writeError(w, http.StatusNotFound, err)
-		return
-	case errors.Is(err, console.ErrExhausted):
-		writeError(w, http.StatusConflict, err)
-		return
-	case err != nil:
-		slog.Warn("console upstream dial failed", "err", err)
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
-
-	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"binary"}})
-	if err != nil {
-		upstream.Close()
-		return
-	}
-	ws.SetReadLimit(-1)
-	started := time.Now()
-	console.Relay(websocket.NetConn(r.Context(), ws, websocket.MessageBinary), upstream)
-	slog.Debug("console connection closed", "protocol", sess.Protocol, "duration", time.Since(started))
-}
-
-func guestFromPath(w http.ResponseWriter, r *http.Request) (string, int, bool) {
-	vmid, err := strconv.Atoi(r.PathValue("vmid"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, errors.New("invalid vmid"))
-		return "", 0, false
-	}
-	return r.PathValue("node"), vmid, true
+	return true
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -245,12 +144,26 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
-func writePVEError(w http.ResponseWriter, err error) {
+// writeServiceError maps errors from Proxmox, the store and the VM service
+// to HTTP responses.
+func writeServiceError(w http.ResponseWriter, err error) {
 	var pe *pve.Error
-	if errors.As(err, &pe) && (pe.Status == http.StatusForbidden || pe.Status == http.StatusNotFound) {
-		writeError(w, pe.Status, err)
-		return
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, errors.New("not found"))
+	case errors.Is(err, store.ErrNoVMID):
+		writeError(w, http.StatusServiceUnavailable, errors.New("no free VM IDs; destroy a VM first"))
+	case errors.Is(err, vms.ErrBadRequest):
+		writeError(w, http.StatusBadRequest, err)
+	case errors.Is(err, vms.ErrBusy), errors.Is(err, vms.ErrNotReady), errors.Is(err, store.ErrConflict):
+		writeError(w, http.StatusConflict, err)
+	case errors.As(err, &pe) && pe.Status == http.StatusForbidden:
+		writeError(w, http.StatusForbidden, err)
+	case errors.As(err, &pe):
+		slog.Warn("proxmox request failed", "err", err)
+		writeError(w, http.StatusBadGateway, err)
+	default:
+		slog.Error("request failed", "err", err)
+		writeError(w, http.StatusInternalServerError, errors.New("internal error"))
 	}
-	slog.Warn("pve request failed", "err", err)
-	writeError(w, http.StatusBadGateway, err)
 }

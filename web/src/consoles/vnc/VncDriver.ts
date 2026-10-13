@@ -36,6 +36,7 @@ export class VncDriver implements ConsoleDriver {
   private scaleMode: ScaleMode = 'fit'
   private probeTimer?: ReturnType<typeof setTimeout>
   private canvasObserver?: MutationObserver
+  private container?: HTMLElement
 
   on<K extends keyof ConsoleEvents>(event: K, handler: (payload: ConsoleEvents[K]) => void) {
     return this.events.on(event, handler)
@@ -43,6 +44,7 @@ export class VncDriver implements ConsoleDriver {
 
   connect(container: HTMLElement, session: ConsoleSession, options: ConnectOptions): void {
     this.scaleMode = options.scaleMode
+    this.container = container
     this.events.emit('status', { status: 'connecting' })
 
     const rfb = new RFB(container, websocketURL(session.path), {
@@ -87,6 +89,10 @@ export class VncDriver implements ConsoleDriver {
 
   focus(): void {
     this.rfb?.focus()
+  }
+
+  snapshot(): HTMLCanvasElement | null {
+    return this.connected ? (this.container?.querySelector('canvas') ?? null) : null
   }
 
   sendKeys(codes: string[]): Promise<void> {

@@ -1,6 +1,6 @@
 import { useLocalStorage } from '@vueuse/core'
 import { onBeforeUnmount, ref, shallowRef, watch, type Ref } from 'vue'
-import { createConsole } from '@/api'
+import { api } from '@/api'
 import { consoleDrivers } from '@/consoles/registry'
 import type {
   AudioSettings,
@@ -13,17 +13,13 @@ import type {
   ScaleMode,
 } from '@/consoles/types'
 
-export interface ConsoleTarget {
-  node: string
-  vmid: number
-}
-
 /**
  * Drives a console in `container` through the common ConsoleDriver
  * interface, whatever the protocol. Each connection uses a fresh session,
  * since Proxmox tickets are single-use and short-lived.
  */
-export function useConsole(target: Ref<ConsoleTarget>, container: Ref<HTMLElement | null>) {
+/** vmId is the Quicksand VM to connect to. */
+export function useConsole(vmId: Ref<string>, container: Ref<HTMLElement | null>) {
   const protocol = ref<ConsoleProtocol | null>(null)
   const status = ref<ConsoleStatus>('idle')
   const message = ref<string>()
@@ -50,7 +46,7 @@ export function useConsole(target: Ref<ConsoleTarget>, container: Ref<HTMLElemen
     audioStatus.value = 'idle'
     try {
       const [session, d] = await Promise.all([
-        createConsole(target.value.node, target.value.vmid, to),
+        api.createConsole(vmId.value, to),
         consoleDrivers[to].create(),
       ])
       if (gen !== generation || !container.value) return
@@ -110,6 +106,7 @@ export function useConsole(target: Ref<ConsoleTarget>, container: Ref<HTMLElemen
     disconnect,
     reconnect,
     focus: () => driver.value?.focus(),
+    snapshot: () => driver.value?.snapshot() ?? null,
     resumeAudio: () => driver.value?.resumeAudio(),
     sendKeys: (codes: string[]) => driver.value?.sendKeys(codes) ?? Promise.resolve(),
     typeText: (text: string) => driver.value?.typeText(text) ?? Promise.resolve({ skipped: [] }),

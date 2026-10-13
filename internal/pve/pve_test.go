@@ -14,7 +14,8 @@ func TestSupportsSpice(t *testing.T) {
 		"qxl2":               true,
 		"qxl,memory=32":      true,
 		"type=qxl3":          true,
-		"virtio,memory=16":   false,
+		"virtio,memory=16":   true,
+		"virtio-gl":          true,
 		"memory=16,type=std": false,
 		"memory=16,type=qxl": true,
 	} {
@@ -57,9 +58,26 @@ func TestHasTablet(t *testing.T) {
 		{map[string]any{"vga": "qxl", "tablet": "1"}, true},
 		{map[string]any{"vga": "std", "tablet": float64(0)}, false},
 		{map[string]any{"vga": "serial0"}, false},
+		{map[string]any{"vga": "virtio"}, true},
 	} {
 		if got := HasTablet(tc.cfg); got != tc.want {
 			t.Errorf("HasTablet(%v) = %v, want %v", tc.cfg, got, tc.want)
+		}
+	}
+}
+
+func TestSetNetBridge(t *testing.T) {
+	for _, tc := range []struct {
+		in     string
+		bridge string
+		vlan   int
+		want   string
+	}{
+		{"e1000=BC:24:11:ED:E9:9B,bridge=qsvm,firewall=1", "vmbr1", 0, "e1000=BC:24:11:ED:E9:9B,firewall=1,bridge=vmbr1"},
+		{"virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0,tag=5", "vmbr2", 105, "virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr2,tag=105"},
+	} {
+		if got := SetNetBridge(tc.in, tc.bridge, tc.vlan); got != tc.want {
+			t.Errorf("SetNetBridge(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

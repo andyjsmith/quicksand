@@ -1,10 +1,58 @@
 {
   "listen": "127.0.0.1:8484",
+  "database": "quicksand.db",
+  "secureCookies": false,
   "pve": {
     "url": "https://pve.example.lan:8006",
     "tokenId": "quicksand@pve!quicksand",
     "tokenSecret": "00000000-0000-0000-0000-000000000000",
     "fingerprint": "",
-    "insecureSkipVerify": false
-  }
+    "insecureSkipVerify": false,
+    "pool": "quicksand"
+  },
+  "vmids": {
+    "from": 9000,
+    "to": 9099
+  },
+  "templates": [
+    {
+      "id": "win10",
+      "vmid": 100,
+      "node": "pve",
+      "name": "Windows 10",
+      "description": "Windows 10 with SPICE guest tools.",
+      "os": "windows",
+      "fullClone": false,
+      "cores": 0,
+      "memoryMiB": 0,
+      "maxCores": 8,
+      "maxMemoryMiB": 16384
+    },
+    {
+      "id": "debian",
+      "vmid": 101,
+      "node": "pve",
+      "name": "Debian 13",
+      "os": "linux"
+    }
+  ],
+  "networks": [
+    {
+      "id": "isolated",
+      "bridge": null,
+      "label": "Isolated (no network)",
+      "default": true
+    },
+    {
+      "id": "lab",
+      "bridge": "vmbr1",
+      "label": "Lab network"
+    },
+    {
+      "id": "internet",
+      "bridge": "vmbr2",
+      "vlan": 105,
+      "label": "Internet access"
+    }
+  ]
 }

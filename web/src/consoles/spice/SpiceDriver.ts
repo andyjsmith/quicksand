@@ -169,6 +169,10 @@ export class SpiceDriver implements ConsoleDriver {
     this.screen?.querySelector('canvas')?.focus()
   }
 
+  snapshot(): HTMLCanvasElement | null {
+    return this.connected ? (this.screen?.querySelector('canvas') ?? null) : null
+  }
+
   sendKeys(codes: string[]): Promise<void> {
     return sendKeyCombo(this.sendKey, codes)
   }

@@ -15,23 +15,23 @@ func pipeDialer(ctx context.Context) (net.Conn, error) {
 
 func TestManagerLimitsConnections(t *testing.T) {
 	m := NewManager(time.Minute)
-	s := m.Create(VNC, "pw", "title", 1, pipeDialer)
+	s := m.Create(1, VNC, "pw", "title", 1, pipeDialer)
 
-	if _, conn, err := m.Open(context.Background(), s.ID); err != nil {
+	if _, conn, err := m.Open(context.Background(), s.ID, 1); err != nil {
 		t.Fatalf("first open: %v", err)
 	} else {
 		conn.Close()
 	}
-	if _, _, err := m.Open(context.Background(), s.ID); !errors.Is(err, ErrExhausted) {
+	if _, _, err := m.Open(context.Background(), s.ID, 1); !errors.Is(err, ErrExhausted) {
 		t.Fatalf("second open: got %v, want ErrExhausted", err)
 	}
 }
 
 func TestManagerUnlimitedConnections(t *testing.T) {
 	m := NewManager(time.Minute)
-	s := m.Create(Spice, "pw", "title", 0, pipeDialer)
+	s := m.Create(1, Spice, "pw", "title", 0, pipeDialer)
 	for i := range 5 {
-		_, conn, err := m.Open(context.Background(), s.ID)
+		_, conn, err := m.Open(context.Background(), s.ID, 1)
 		if err != nil {
 			t.Fatalf("open %d: %v", i, err)
 		}
@@ -39,14 +39,22 @@ func TestManagerUnlimitedConnections(t *testing.T) {
 	}
 }
 
+func TestManagerOwner(t *testing.T) {
+	m := NewManager(time.Minute)
+	s := m.Create(1, Spice, "pw", "title", 0, pipeDialer)
+	if _, _, err := m.Open(context.Background(), s.ID, 2); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("another user's session: got %v, want ErrNotFound", err)
+	}
+}
+
 func TestManagerExpiry(t *testing.T) {
 	m := NewManager(time.Millisecond)
-	s := m.Create(Spice, "pw", "title", 0, pipeDialer)
+	s := m.Create(1, Spice, "pw", "title", 0, pipeDialer)
 	time.Sleep(5 * time.Millisecond)
-	if _, _, err := m.Open(context.Background(), s.ID); !errors.Is(err, ErrNotFound) {
+	if _, _, err := m.Open(context.Background(), s.ID, 1); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("got %v, want ErrNotFound", err)
 	}
-	if _, _, err := m.Open(context.Background(), "unknown"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := m.Open(context.Background(), "unknown", 1); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("got %v, want ErrNotFound", err)
 	}
 }

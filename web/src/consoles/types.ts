@@ -97,4 +97,6 @@ export interface ConsoleDriver {
   setAudio(settings: AudioSettings): void
   /** Retry audio playback the browser blocked. Call from a user gesture. */
   resumeAudio(): void
+  /** The canvas showing the guest display, for preview screenshots. */
+  snapshot(): HTMLCanvasElement | null
 }

@@ -1,25 +1,35 @@
 <script setup lang="ts">
-import { useEventListener, useFullscreen, useTitle } from '@vueuse/core'
-import { CircleAlert, PanelLeftOpen, RefreshCw, Unplug, Volume2 } from '@lucide/vue'
-import { computed, onMounted, ref, watch } from 'vue'
+import { useEventListener, useFullscreen, useIntervalFn, useTitle } from '@vueuse/core'
+import { CircleAlert, PanelLeftOpen, Play, RefreshCw, Unplug, Volume2 } from '@lucide/vue'
+import { computed, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getVM, type VM } from '@/api'
+import { api, errorMessage } from '@/api'
 import ConsoleSidebar from '@/components/console/ConsoleSidebar.vue'
 import { Button } from '@/components/ui/button'
+import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { useConsole } from '@/composables/useConsole'
+import { useMachines } from '@/composables/useMachines'
 import type { ConsoleProtocol } from '@/consoles/types'
+import { vmStatus } from '@/lib/format'
+import { savePreview } from '@/lib/previews'
 
-const props = defineProps<{ node: string; vmid: string }>()
+const PREVIEW_INTERVAL_MS = 30_000
+
+const props = defineProps<{ id: string }>()
 const route = useRoute()
 const router = useRouter()
 
 const viewport = ref<HTMLElement | null>(null)
 const root = ref<HTMLElement | null>(null)
-const target = computed(() => ({ node: props.node, vmid: Number(props.vmid) }))
-const ctl = useConsole(target, viewport)
 
-const vm = ref<VM | null>(null)
+// Registered before useConsole so it runs before the console is torn down.
+onBeforeUnmount(capturePreview)
+const ctl = useConsole(toRef(props, 'id'), viewport)
+
+const machines = useMachines()
+onBeforeUnmount(machines.stop)
+const vm = machines.get(props.id)
 const loadError = ref<string>()
 const panelOpen = ref(false)
 
@@ -27,14 +37,50 @@ useTitle(computed(() => (vm.value ? `${vm.value.name} · Quicksand` : 'Console �
 
 onMounted(async () => {
   try {
-    vm.value = await getVM(target.value.node, target.value.vmid)
+    machines.upsert(await api.vm(props.id))
   } catch (e) {
-    loadError.value = e instanceof Error ? e.message : String(e)
-    return
+    loadError.value = errorMessage(e)
   }
-  const requested = route.query.protocol as ConsoleProtocol | undefined
-  const protocol = requested && vm.value.consoles.includes(requested) ? requested : vm.value.consoles[0]
-  if (protocol) ctl.connect(protocol)
+})
+
+const running = computed(() => vm.value?.state === 'ready' && vm.value.power === 'running')
+
+// Connect as soon as the VM is running: on arrival, and again after it is
+// started from this page. A manual disconnect isn't undone automatically.
+let autoConnect = true
+watch(
+  running,
+  (isRunning, wasRunning) => {
+    if (isRunning && wasRunning === false) autoConnect = true
+    if (!isRunning || !autoConnect || !vm.value) return
+    autoConnect = false
+    const requested = route.query.protocol as ConsoleProtocol | undefined
+    const protocol =
+      requested && vm.value.consoles.includes(requested) ? requested : vm.value.consoles[0]
+    if (protocol) ctl.connect(protocol)
+  },
+  { immediate: true },
+)
+
+const powerError = ref<string>()
+async function powerOn() {
+  if (!vm.value) return
+  powerError.value = undefined
+  try {
+    await api.power(vm.value.id, vm.value.power === 'stopped' ? 'start' : 'resume')
+  } catch (e) {
+    powerError.value = errorMessage(e)
+  }
+}
+
+function capturePreview() {
+  const canvas = ctl.snapshot()
+  if (canvas) savePreview(props.id, canvas)
+}
+useIntervalFn(() => ctl.status.value === 'connected' && capturePreview(), PREVIEW_INTERVAL_MS)
+// A first preview once the display has had a moment to draw.
+watch(ctl.status, (status) => {
+  if (status === 'connected') setTimeout(capturePreview, 3000)
 })
 
 // Keep the protocol in the URL so a reload reconnects the same way.
@@ -77,7 +123,7 @@ async function toggleFullscreen() {
     <div ref="viewport" class="absolute inset-0 bg-black [&_canvas]:outline-none" />
 
     <div
-      v-if="loadError || ctl.status.value !== 'connected'"
+      v-if="loadError || !running || ctl.status.value !== 'connected'"
       class="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center"
     >
       <div
@@ -87,7 +133,37 @@ async function toggleFullscreen() {
           <CircleAlert class="text-destructive size-6" />
           <p class="text-sm font-medium">Couldn't load this virtual machine</p>
           <p class="text-muted-foreground text-xs">{{ loadError }}</p>
-          <Button variant="outline" @click="router.push('/')">Back to the list</Button>
+          <Button variant="outline" @click="router.push('/')">Back to machines</Button>
+        </template>
+        <template v-else-if="!vm && machines.loaded.value">
+          <Unplug class="text-muted-foreground size-6" />
+          <p class="text-sm font-medium">This machine no longer exists</p>
+          <Button variant="outline" @click="router.push('/')">Back to machines</Button>
+        </template>
+        <template v-else-if="!vm">
+          <Spinner class="size-5" />
+        </template>
+        <template v-else-if="vm.state === 'deploying' || vm.state === 'destroying'">
+          <p class="text-sm font-medium">{{ vm.state === 'deploying' ? 'Deploying' : 'Destroying' }} {{ vm.name }}</p>
+          <p class="text-muted-foreground text-xs">{{ vm.step }}…</p>
+          <Progress :model-value="vm.progress * 100" class="h-1.5 w-56" />
+        </template>
+        <template v-else-if="vm.state === 'failed'">
+          <CircleAlert class="text-destructive size-6" />
+          <p class="text-sm font-medium">This machine failed</p>
+          <p class="text-muted-foreground text-xs">{{ vm.error }}</p>
+          <Button variant="outline" @click="router.push('/')">Back to machines</Button>
+        </template>
+        <template v-else-if="!running">
+          <Spinner v-if="vm.action" class="size-5" />
+          <p class="text-sm font-medium">{{ vm.name }} is {{ vmStatus(vm).label.toLowerCase() }}</p>
+          <p v-if="powerError || vm.actionError" class="text-destructive text-xs">{{ powerError || vm.actionError }}</p>
+          <div v-if="!vm.action" class="flex gap-2">
+            <Button v-if="vm.power !== 'unknown'" @click="powerOn">
+              <Play /> {{ vm.power === 'stopped' ? 'Start' : 'Resume' }}
+            </Button>
+            <Button variant="outline" @click="router.push('/')">Back to machines</Button>
+          </div>
         </template>
         <template v-else-if="ctl.status.value === 'connecting' || ctl.status.value === 'idle'">
           <Spinner class="size-5" />
@@ -125,7 +201,7 @@ async function toggleFullscreen() {
     <ConsoleSidebar
       v-model:open="panelOpen"
       :console="ctl"
-      :vm="vm"
+      :vm="vm ?? null"
       :fullscreen="isFullscreen"
       @toggle-fullscreen="toggleFullscreen"
     />

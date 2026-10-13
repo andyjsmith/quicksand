@@ -35,6 +35,8 @@ type Session struct {
 	// display protocol itself. It is single-use and short-lived upstream.
 	Password string
 	Title    string
+	// Owner is the user the session was issued to; only they may open it.
+	Owner int64
 
 	dial    Dialer
 	expires time.Time
@@ -61,12 +63,13 @@ func NewManager(ttl time.Duration) *Manager {
 	return &Manager{ttl: ttl, sessions: map[string]*Session{}}
 }
 
-func (m *Manager) Create(protocol Protocol, password, title string, maxConns int, dial Dialer) *Session {
+func (m *Manager) Create(owner int64, protocol Protocol, password, title string, maxConns int, dial Dialer) *Session {
 	s := &Session{
 		ID:       randomID(),
 		Protocol: protocol,
 		Password: password,
 		Title:    title,
+		Owner:    owner,
 		dial:     dial,
 		expires:  time.Now().Add(m.ttl),
 		maxConns: maxConns,
@@ -78,12 +81,13 @@ func (m *Manager) Create(protocol Protocol, password, title string, maxConns int
 	return s
 }
 
-// Open dials a new upstream connection for the session with the given ID.
-func (m *Manager) Open(ctx context.Context, id string) (*Session, net.Conn, error) {
+// Open dials a new upstream connection for the session with the given ID,
+// which must have been issued to owner.
+func (m *Manager) Open(ctx context.Context, id string, owner int64) (*Session, net.Conn, error) {
 	m.mu.Lock()
 	m.sweep()
 	s, ok := m.sessions[id]
-	if !ok {
+	if !ok || s.Owner != owner {
 		m.mu.Unlock()
 		return nil, nil, ErrNotFound
 	}
