@@ -315,10 +315,19 @@ export class SpiceDriver implements ConsoleDriver {
    */
   private interceptPaste(container: HTMLElement): void {
     let pending: ReturnType<typeof setTimeout> | undefined
+    // Whether the user is still holding Ctrl, which the guest also sees held.
+    let ctrlHeld = false
     const pressV = () => {
-      this.sendKey('KeyV', true)
-      setTimeout(() => this.sendKey('KeyV', false), 15)
+      // A quick Ctrl+V can be over before the keystroke is sent; the guest
+      // then needs Ctrl pressed for it, or it would type a plain "v".
+      if (ctrlHeld) {
+        this.sendKey('KeyV', true)
+        setTimeout(() => this.sendKey('KeyV', false), 15)
+      } else {
+        sendKeyCombo(this.sendKey, ['ControlLeft', 'KeyV'])
+      }
     }
+    const trackCtrl = (e: KeyboardEvent) => (ctrlHeld = e.ctrlKey)
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code !== 'KeyV' || !e.ctrlKey || e.altKey || e.metaKey || e.repeat) return
@@ -343,12 +352,18 @@ export class SpiceDriver implements ConsoleDriver {
       setTimeout(pressV, text ? PASTE_KEY_DELAY_MS : 0)
     }
 
+    window.addEventListener('keydown', trackCtrl, { capture: true })
+    window.addEventListener('keyup', trackCtrl, { capture: true })
     container.addEventListener('keydown', onKeyDown, { capture: true })
-    container.addEventListener('paste', onPaste)
+    // Firefox fires the paste event at the document body rather than at the
+    // focused canvas, so it has to be caught at the document.
+    document.addEventListener('paste', onPaste, { capture: true })
     this.cleanups.push(() => {
       clearTimeout(pending)
+      window.removeEventListener('keydown', trackCtrl, { capture: true })
+      window.removeEventListener('keyup', trackCtrl, { capture: true })
       container.removeEventListener('keydown', onKeyDown, { capture: true })
-      container.removeEventListener('paste', onPaste)
+      document.removeEventListener('paste', onPaste, { capture: true })
     })
   }
 }
