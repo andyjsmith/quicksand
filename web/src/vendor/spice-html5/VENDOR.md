@@ -14,6 +14,11 @@
   pointer is within 8 px of the left edge. Windows guests send a hide there
   and never re-show the pointer until its shape changes.
 - `cursor.js`: apply the cursor shape carried by `SPICE_MSG_CURSOR_INIT`.
+- `playback.js`: hand playback messages to `parent.playback_sink` when the
+  application sets one. Quicksand decodes the Opus packets with WebCodecs and
+  plays them with Web Audio, because Firefox cannot play the live WebM/MSE
+  stream: whenever its demuxer catches up with the live edge it drains the
+  FFmpeg Opus decoder, which then reports end of stream and playback ends.
 
 ## Quicksand additions (not upstream)
 

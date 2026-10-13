@@ -148,6 +148,16 @@ const volume = computed({
     c.audio.value = { ...c.audio.value, volume: (v?.[0] ?? 0) / 100 }
   },
 })
+const audioStatusText = computed(
+  () =>
+    ({
+      idle: 'Nothing playing in the guest',
+      playing: 'Playing',
+      blocked: 'Blocked by your browser until you click the page',
+      error: "Playback failed (see the browser console)",
+    })[c.audioStatus.value],
+)
+
 const soundOn = computed({
   get: () => !c.audio.value.muted,
   set: (on: boolean) => {
@@ -348,6 +358,14 @@ const soundOn = computed({
             <div class="flex items-center justify-between">
               <Label for="audio-on" class="text-xs">Play guest audio</Label>
               <Switch id="audio-on" v-model="soundOn" />
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-xs" :class="c.audioStatus.value === 'idle' || c.audioStatus.value === 'playing' ? 'text-muted-foreground' : 'text-destructive'">
+                {{ audioStatusText }}
+              </p>
+              <Button v-if="c.audioStatus.value === 'blocked'" variant="outline" size="sm" @click="c.resumeAudio()">
+                <Volume2 /> Enable audio
+              </Button>
             </div>
             <div class="flex items-center gap-3">
               <VolumeX class="text-muted-foreground size-3.5" />

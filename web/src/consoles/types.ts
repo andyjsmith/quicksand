@@ -44,6 +44,15 @@ export interface DisplaySize {
   height: number
 }
 
+/**
+ * Guest audio playback.
+ * - idle: the guest is not sending audio
+ * - playing: audio is reaching the speakers
+ * - blocked: the browser refused to start playback until the user interacts
+ * - error: playback failed
+ */
+export type AudioStatus = 'idle' | 'playing' | 'blocked' | 'error'
+
 export interface ConsoleEvents {
   status: { status: ConsoleStatus; message?: string }
   capabilities: ConsoleCapabilities
@@ -51,6 +60,7 @@ export interface ConsoleEvents {
   clipboard: string
   /** The guest display resolution changed. */
   resolution: DisplaySize
+  audio: { status: AudioStatus; message?: string }
 }
 
 export interface AudioSettings {
@@ -85,4 +95,6 @@ export interface ConsoleDriver {
   sendClipboard(text: string): Promise<void>
   setScaleMode(mode: ScaleMode): void
   setAudio(settings: AudioSettings): void
+  /** Retry audio playback the browser blocked. Call from a user gesture. */
+  resumeAudio(): void
 }

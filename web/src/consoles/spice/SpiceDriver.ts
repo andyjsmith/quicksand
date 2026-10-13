@@ -13,6 +13,7 @@ import { Emitter } from '../emitter'
 import { sendKeyCombo, typeWithKeys } from '../keyboard'
 import type {
   AudioSettings,
+  AudioStatus,
   ConnectOptions,
   ConsoleCapabilities,
   ConsoleDriver,
@@ -21,6 +22,7 @@ import type {
   ScaleMode,
 } from '../types'
 import { DisplayLayout, websocketURL } from '../layout'
+import { OpusPlayer, opusPlayerSupported } from './OpusPlayer'
 
 const RESIZE_DEBOUNCE_MS = 250
 // After intercepting Ctrl+V, how long to wait for the browser's paste event
@@ -39,7 +41,7 @@ export class SpiceDriver implements ConsoleDriver {
     scaleModes: ['fit', 'none'],
     clipboardSync: false,
     clipboardSend: false,
-    audio: true,
+    audio: opusPlayerSupported(),
     keyCombos: true,
     typeText: true,
   }
@@ -51,6 +53,8 @@ export class SpiceDriver implements ConsoleDriver {
   private screen?: HTMLElement
   private scaleMode: ScaleMode = 'fit'
   private audio: AudioSettings = { muted: false, volume: 1 }
+  private player?: OpusPlayer
+  private audioStatus: AudioStatus = 'idle'
   private observers: { disconnect(): void }[] = []
   private resizeTimer?: ReturnType<typeof setTimeout>
   private lastRequested = ''
@@ -83,8 +87,8 @@ export class SpiceDriver implements ConsoleDriver {
     this.layout = new DisplayLayout(container, screen, (size) => this.events.emit('resolution', size))
     this.layout.setMode(this.effectiveScaleMode())
 
-    // spice-html5 adds canvases and an <audio> element to the screen as
-    // channels come up; track them to size the display and apply audio settings.
+    // spice-html5 adds the display canvas to the screen once the display
+    // channel is up; track it to size the display.
     const mutations = new MutationObserver(() => {
       const canvas = screen.querySelector('canvas')
       if (canvas) {
@@ -96,7 +100,6 @@ export class SpiceDriver implements ConsoleDriver {
           this.events.emit('status', { status: 'connected' })
         }
       }
-      this.applyAudio()
     })
     mutations.observe(screen, { childList: true })
     this.observers.push(mutations)
@@ -105,16 +108,18 @@ export class SpiceDriver implements ConsoleDriver {
     resize.observe(container)
     this.observers.push(resize)
 
-    // Browsers block audio until the user interacts with the page.
+    // Browsers refuse to start audio before the user has interacted with
+    // the page; retry on the first click or key press anywhere.
     const unblockAudio = () => {
-      const el = this.sc?.playback?.audio
-      if (el?.paused) el.play().catch(() => {})
+      if (this.audioStatus === 'blocked') this.resumeAudio()
     }
-    container.addEventListener('pointerdown', unblockAudio)
-    container.addEventListener('keydown', unblockAudio)
+    window.addEventListener('pointerdown', unblockAudio, { capture: true })
+    window.addEventListener('keydown', unblockAudio, { capture: true })
     this.cleanups.push(() => {
-      container.removeEventListener('pointerdown', unblockAudio)
-      container.removeEventListener('keydown', unblockAudio)
+      window.removeEventListener('pointerdown', unblockAudio, { capture: true })
+      window.removeEventListener('keydown', unblockAudio, { capture: true })
+      this.player?.close()
+      this.player = undefined
     })
 
     this.cleanups.push(watchClipboardRead((state) => (this.canReadClipboard = state === 'granted')))
@@ -132,6 +137,14 @@ export class SpiceDriver implements ConsoleDriver {
     } catch (e) {
       this.handleError(e as Error)
       return
+    }
+    // Guest audio goes to our WebCodecs player rather than spice-html5's
+    // MediaSource one (see OpusPlayer). Without WebCodecs it is discarded.
+    if (this.capabilities.audio) {
+      this.player = new OpusPlayer(this.audio, (status, message) => this.setAudioStatus(status, message))
+      this.sc.playback_sink = this.player
+    } else {
+      this.sc.playback_sink = { start() {}, data() {}, stop() {} }
     }
     this.hookClipboard(this.sc)
   }
@@ -178,7 +191,11 @@ export class SpiceDriver implements ConsoleDriver {
 
   setAudio(settings: AudioSettings): void {
     this.audio = settings
-    this.applyAudio()
+    this.player?.setSettings(settings)
+  }
+
+  resumeAudio(): void {
+    this.player?.resume()
   }
 
   private sendKey = (code: string, down: boolean): boolean => {
@@ -235,11 +252,10 @@ export class SpiceDriver implements ConsoleDriver {
     }, delay)
   }
 
-  private applyAudio(): void {
-    const el = this.sc?.playback?.audio
-    if (!el) return
-    el.muted = this.audio.muted
-    el.volume = this.audio.volume
+  private setAudioStatus(status: AudioStatus, message?: string): void {
+    if (status === this.audioStatus && !message) return
+    this.audioStatus = status
+    this.events.emit('audio', { status, message })
   }
 
   /** Make text the guest's clipboard content, owned by the client. */

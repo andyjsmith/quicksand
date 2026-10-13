@@ -41,6 +41,13 @@ function SpicePlaybackConn()
 SpicePlaybackConn.prototype = Object.create(SpiceConn.prototype);
 SpicePlaybackConn.prototype.process_channel_message = function(msg)
 {
+    /* Quicksand: an application-supplied sink (parent.playback_sink) takes
+       the Opus packets instead of the MediaSource pipeline below, which
+       Firefox cannot play live (see VENDOR.md). */
+    var sink = this.parent && this.parent.playback_sink;
+    if (sink)
+        return sink_channel_message(this, sink, msg);
+
     if (!window.MediaSource)
     {
         this.log_err('MediaSource API is not available');
@@ -196,6 +203,40 @@ SpicePlaybackConn.prototype.process_channel_message = function(msg)
         return true;
     }
 
+    return false;
+}
+
+function sink_channel_message(conn, sink, msg)
+{
+    if (msg.type == Constants.SPICE_MSG_PLAYBACK_MODE)
+    {
+        var mode = new Messages.SpiceMsgPlaybackMode(msg.data);
+        if (mode.mode != Constants.SPICE_AUDIO_DATA_MODE_OPUS)
+            conn.log_err('This player cannot handle mode ' + mode.mode);
+        return true;
+    }
+    if (msg.type == Constants.SPICE_MSG_PLAYBACK_START)
+    {
+        var start = new Messages.SpiceMsgPlaybackStart(msg.data);
+        sink.start(start.frequency, start.channels);
+        return true;
+    }
+    if (msg.type == Constants.SPICE_MSG_PLAYBACK_DATA)
+    {
+        var data = new Messages.SpiceMsgPlaybackData(msg.data);
+        if (data.data)
+            sink.data(data.time, data.data);
+        return true;
+    }
+    if (msg.type == Constants.SPICE_MSG_PLAYBACK_STOP)
+    {
+        sink.stop();
+        return true;
+    }
+    if (msg.type == Constants.SPICE_MSG_PLAYBACK_VOLUME ||
+        msg.type == Constants.SPICE_MSG_PLAYBACK_MUTE ||
+        msg.type == Constants.SPICE_MSG_PLAYBACK_LATENCY)
+        return true;
     return false;
 }
 

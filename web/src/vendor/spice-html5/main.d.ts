@@ -17,8 +17,12 @@ export interface SpiceChannel {
   send_msg(msg: unknown): void
 }
 
-export interface SpicePlaybackConn extends SpiceChannel {
-  audio?: HTMLAudioElement
+/** Receives guest audio in place of spice-html5's MediaSource player (Quicksand addition). */
+export interface PlaybackSink {
+  start(frequency: number, channels: number): void
+  /** One Opus packet; time is the server's multimedia clock in milliseconds. */
+  data(time: number, packet: ArrayBuffer): void
+  stop(): void
 }
 
 export class SpiceMainConn implements SpiceChannel {
@@ -29,7 +33,7 @@ export class SpiceMainConn implements SpiceChannel {
   agent_caps: number[]
   inputs?: SpiceChannel
   display?: SpiceChannel
-  playback?: SpicePlaybackConn
+  playback_sink?: PlaybackSink
   send_msg(msg: unknown): void
   stop(): void
   resize_window(flags: number, width: number, height: number, depth: number, x: number, y: number): void

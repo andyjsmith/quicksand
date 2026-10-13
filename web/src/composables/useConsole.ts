@@ -4,6 +4,7 @@ import { createConsole } from '@/api'
 import { consoleDrivers } from '@/consoles/registry'
 import type {
   AudioSettings,
+  AudioStatus,
   ConsoleCapabilities,
   ConsoleDriver,
   ConsoleProtocol,
@@ -29,6 +30,7 @@ export function useConsole(target: Ref<ConsoleTarget>, container: Ref<HTMLElemen
   const capabilities = ref<ConsoleCapabilities | null>(null)
   const resolution = ref<DisplaySize | null>(null)
   const guestClipboard = ref<string | null>(null)
+  const audioStatus = ref<AudioStatus>('idle')
   const driver = shallowRef<ConsoleDriver | null>(null)
 
   const scaleMode = useLocalStorage<ScaleMode>('quicksand.scaleMode', 'remote')
@@ -45,6 +47,7 @@ export function useConsole(target: Ref<ConsoleTarget>, container: Ref<HTMLElemen
     message.value = undefined
     resolution.value = null
     guestClipboard.value = null
+    audioStatus.value = 'idle'
     try {
       const [session, d] = await Promise.all([
         createConsole(target.value.node, target.value.vmid, to),
@@ -59,6 +62,7 @@ export function useConsole(target: Ref<ConsoleTarget>, container: Ref<HTMLElemen
       d.on('capabilities', (c) => (capabilities.value = c))
       d.on('resolution', (r) => (resolution.value = r))
       d.on('clipboard', (text) => (guestClipboard.value = text))
+      d.on('audio', (a) => (audioStatus.value = a.status))
       driver.value = d
       d.connect(container.value, session, { scaleMode: scaleMode.value, audio: { ...audio.value } })
     } catch (e) {
@@ -99,12 +103,14 @@ export function useConsole(target: Ref<ConsoleTarget>, container: Ref<HTMLElemen
     capabilities,
     resolution,
     guestClipboard,
+    audioStatus,
     scaleMode,
     audio,
     connect,
     disconnect,
     reconnect,
     focus: () => driver.value?.focus(),
+    resumeAudio: () => driver.value?.resumeAudio(),
     sendKeys: (codes: string[]) => driver.value?.sendKeys(codes) ?? Promise.resolve(),
     typeText: (text: string) => driver.value?.typeText(text) ?? Promise.resolve({ skipped: [] }),
     sendClipboard: (text: string) => driver.value?.sendClipboard(text) ?? Promise.resolve(),

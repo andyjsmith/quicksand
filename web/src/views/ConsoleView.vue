@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useEventListener, useFullscreen, useTitle } from '@vueuse/core'
-import { CircleAlert, PanelLeftOpen, RefreshCw, Unplug } from '@lucide/vue'
+import { CircleAlert, PanelLeftOpen, RefreshCw, Unplug, Volume2 } from '@lucide/vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getVM, type VM } from '@/api'
@@ -112,6 +112,15 @@ async function toggleFullscreen() {
         </template>
       </div>
     </div>
+
+    <button
+      v-if="ctl.status.value === 'connected' && ctl.audioStatus.value === 'blocked' && !ctl.audio.value.muted"
+      type="button"
+      class="bg-background/90 text-foreground hover:bg-background absolute top-3 left-1/2 z-[5] flex -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-1.5 text-xs shadow-lg backdrop-blur"
+      @click="ctl.resumeAudio(); ctl.focus()"
+    >
+      <Volume2 class="size-3.5" /> Your browser blocked the guest's audio. Click to enable.
+    </button>
 
     <ConsoleSidebar
       v-model:open="panelOpen"

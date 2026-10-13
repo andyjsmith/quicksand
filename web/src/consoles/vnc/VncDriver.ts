@@ -108,6 +108,8 @@ export class VncDriver implements ConsoleDriver {
 
   setAudio(_settings: AudioSettings): void {}
 
+  resumeAudio(): void {}
+
   private sendKey = (code: string, down: boolean, keysym?: number): boolean => {
     if (!this.rfb || !this.connected) return false
     if (keysym !== undefined) this.rfb.sendKey(keysym, code, down)
