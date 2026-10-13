@@ -6,7 +6,12 @@ config.json
 /quicksand
 web/node_modules/
 web/dist/
+dist/
 
 # Database
 quicksand.db
 quicksand.db-*
+
+# SSH key for the deployment host
+quicksand.key
+quicksand.key.pub

@@ -81,3 +81,12 @@ func TestSetNetBridge(t *testing.T) {
 		}
 	}
 }
+
+func TestSetNetOption(t *testing.T) {
+	if got := SetNetOption("e1000=AA:BB:CC:DD:EE:FF,bridge=vmbr0,firewall=1", "firewall", "0"); got != "e1000=AA:BB:CC:DD:EE:FF,bridge=vmbr0,firewall=0" {
+		t.Errorf("replace: %q", got)
+	}
+	if got := SetNetOption("virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0", "firewall", "0"); got != "virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0,firewall=0" {
+		t.Errorf("append: %q", got)
+	}
+}

@@ -2,10 +2,15 @@
 package config
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
+	"regexp"
+
+	"quicksand/internal/agentproto"
 )
 
 type Config struct {
@@ -16,11 +21,56 @@ type Config struct {
 	// SecureCookies marks session cookies Secure. Enable when Quicksand is
 	// served over HTTPS (directly or behind a proxy).
 	SecureCookies bool `json:"secureCookies"`
-	PVE           PVE  `json:"pve"`
+	// TLS, if set, serves HTTPS with this certificate. Browsers only allow
+	// clipboard access and audio decoding on secure origins, so serve over
+	// HTTPS (here or via a reverse proxy) anywhere but localhost.
+	TLS *TLS `json:"tls,omitempty"`
+	PVE PVE  `json:"pve"`
 	// VMIDs is the pool of Proxmox VM IDs deployments are created with.
 	VMIDs     VMIDRange  `json:"vmids"`
 	Templates []Template `json:"templates"`
 	Networks  []Network  `json:"networks"`
+	// Agent configures the optional in-guest agent. Required when any
+	// template has agent set.
+	Agent *Agent `json:"agent,omitempty"`
+}
+
+// Agent configures how Quicksand reaches agents in deployed VMs. See
+// docs/proxmox-setup.md for the network this describes.
+type Agent struct {
+	// PrivateKey is the key Quicksand authenticates to agents with
+	// ("ed25519-private:..."; create one with "quicksand agent keygen").
+	// Agents trust its public key, so keep it: a new key means updating
+	// every template.
+	PrivateKey string `json:"privateKey"`
+	// Port agents listen on (default 7070).
+	Port int `json:"port"`
+	// Proxy, if set, is a socks5:// URL agent connections go through, e.g.
+	// "ssh -D" into the Quicksand host while developing elsewhere.
+	Proxy   string       `json:"proxy"`
+	Network AgentNetwork `json:"network"`
+}
+
+type AgentNetwork struct {
+	// Bridge is the SDN VNet (with "Isolate Ports") agent NICs attach to.
+	Bridge string `json:"bridge"`
+	// Subnet agent NICs are addressed from, e.g. "10.99.0.0/24".
+	Subnet string `json:"subnet"`
+	// ServerIP is Quicksand's own address on the agent network. Agents
+	// only accept connections from it (enforced by the VM firewall).
+	ServerIP string `json:"serverIP"`
+	// MACPrefix is the first three bytes of agent NIC MACs (default 02:51:53).
+	MACPrefix string `json:"macPrefix"`
+	// NIC is the VM network device used for the agent (default "net1").
+	NIC string `json:"nic"`
+	// Model is the NIC model (default "e1000", which needs no guest drivers).
+	Model string `json:"model"`
+}
+
+type TLS struct {
+	// Cert and Key are PEM file paths; Cert may include intermediates.
+	Cert string `json:"cert"`
+	Key  string `json:"key"`
 }
 
 type PVE struct {
@@ -62,6 +112,9 @@ type Template struct {
 	// Upper limits offered in the deploy dialog.
 	MaxCores     int `json:"maxCores"`
 	MaxMemoryMiB int `json:"maxMemoryMiB"`
+	// Agent says the template has the Quicksand agent installed; clones
+	// get a NIC on the agent network.
+	Agent bool `json:"agent"`
 }
 
 // Network is a bridge (optionally with a VLAN tag) deployments can attach
@@ -95,6 +148,9 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) validate() error {
+	if c.TLS != nil && (c.TLS.Cert == "" || c.TLS.Key == "") {
+		return errors.New("tls.cert and tls.key are both required")
+	}
 	if c.PVE.URL == "" || c.PVE.TokenID == "" || c.PVE.TokenSecret == "" {
 		return errors.New("pve.url, pve.tokenId and pve.tokenSecret are required")
 	}
@@ -154,10 +210,74 @@ func (c *Config) validate() error {
 	if defaults > 1 {
 		return errors.New("only one network can be the default")
 	}
+	for _, t := range c.Templates {
+		if t.Agent && c.Agent == nil {
+			return fmt.Errorf("template %q has agent set, but there is no agent section", t.ID)
+		}
+	}
+	if c.Agent != nil {
+		if err := c.Agent.validate(); err != nil {
+			return fmt.Errorf("agent: %w", err)
+		}
+	}
 	if defaults == 0 && len(c.Networks) > 0 {
 		c.Networks[0].Default = true
 	}
 	return nil
+}
+
+var netKey = regexp.MustCompile(`^net\d+$`)
+
+func (a *Agent) validate() error {
+	if a.PrivateKey == "" {
+		return errors.New(`privateKey is required; generate one with "quicksand agent keygen"`)
+	}
+	if _, err := agentproto.ParsePrivateKey(a.PrivateKey); err != nil {
+		return fmt.Errorf("privateKey: %w", err)
+	}
+	if a.Port == 0 {
+		a.Port = agentproto.DefaultPort
+	}
+	n := &a.Network
+	if n.Bridge == "" {
+		return errors.New("network.bridge is required")
+	}
+	if n.NIC == "" {
+		n.NIC = "net1"
+	}
+	if !netKey.MatchString(n.NIC) || n.NIC == "net0" {
+		return errors.New(`network.nic must be a network device other than net0, e.g. "net1"`)
+	}
+	if n.Model == "" {
+		n.Model = "e1000"
+	}
+	if n.MACPrefix == "" {
+		n.MACPrefix = agentproto.DefaultMACPrefix
+	}
+	an, err := agentproto.ParseAgentNetwork(n.Subnet, n.MACPrefix)
+	if err != nil {
+		return fmt.Errorf("network: %w", err)
+	}
+	server, err := netip.ParseAddr(n.ServerIP)
+	if err != nil {
+		return errors.New("network.serverIP must be Quicksand's IP address on the agent network")
+	}
+	if _, err := an.Offset(server); err != nil {
+		return fmt.Errorf("network.serverIP: %w", err)
+	}
+	return nil
+}
+
+// Key returns the parsed private key (valid after Load).
+func (a *Agent) Key() ed25519.PrivateKey {
+	k, _ := agentproto.ParsePrivateKey(a.PrivateKey)
+	return k
+}
+
+// ParsedNetwork returns the agent addressing scheme (valid after Load).
+func (a *Agent) ParsedNetwork() agentproto.AgentNetwork {
+	n, _ := agentproto.ParseAgentNetwork(a.Network.Subnet, a.Network.MACPrefix)
+	return n
 }
 
 // Isolated reports whether the network gives guests no interface at all.

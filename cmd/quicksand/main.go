@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"quicksand/internal/agentclient"
+	"quicksand/internal/agentproto"
 	"quicksand/internal/auth"
 	"quicksand/internal/config"
 	"quicksand/internal/httpapi"
@@ -28,12 +30,17 @@ const usage = `Usage:
   quicksand user passwd [-config config.json] <username>
   quicksand user delete [-config config.json] <username>
   quicksand user list [-config config.json]
+  quicksand agent keygen
+  quicksand agent pubkey [-config config.json]
+  quicksand agent info [-config config.json] <host[:port]>
+  quicksand agent exec [-config config.json] [-timeout 60] <host[:port]> -- <command> [args...]
+  quicksand agent exec [-config config.json] [-timeout 60] -shell '<command line>' <host[:port]>
 `
 
 func main() {
 	args := os.Args[1:]
 	cmd := "serve"
-	if len(args) > 0 && (args[0] == "serve" || args[0] == "user") {
+	if len(args) > 0 && (args[0] == "serve" || args[0] == "user" || args[0] == "agent") {
 		cmd, args = args[0], args[1:]
 	}
 	var err error
@@ -42,6 +49,8 @@ func main() {
 		err = serve(args)
 	case "user":
 		err = userCommand(args)
+	case "agent":
+		err = agentCommand(args)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "quicksand:", err)
@@ -76,8 +85,17 @@ func serve(args []string) error {
 		return fmt.Errorf("create pve client: %w", err)
 	}
 
+	var agents *agentclient.Client
+	var agentPublicKey string
+	if cfg.Agent != nil {
+		client, pub, err := newAgentClient(cfg.Agent)
+		if err != nil {
+			return err
+		}
+		agents, agentPublicKey = client, agentproto.FormatPublicKey(pub)
+	}
 	hub := vms.NewHub()
-	service := vms.NewService(cfg, client, db, hub)
+	service := vms.NewService(cfg, client, db, hub, agents)
 	if err := service.Recover(context.Background()); err != nil {
 		return fmt.Errorf("recover jobs: %w", err)
 	}
@@ -91,7 +109,7 @@ func serve(args []string) error {
 		Addr: cfg.Listen,
 		Handler: httpapi.New(httpapi.Deps{
 			Config: cfg, PVE: client, Store: db, Sessions: auth.NewSessions(db, cfg.SecureCookies),
-			VMs: service, Hub: hub, Static: static,
+			VMs: service, Hub: hub, Static: static, AgentPublicKey: agentPublicKey,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -106,8 +124,14 @@ func serve(args []string) error {
 		srv.Shutdown(shutdownCtx)
 	}()
 
-	slog.Info("listening", "addr", cfg.Listen)
-	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+	if cfg.TLS != nil {
+		slog.Info("listening (HTTPS)", "addr", cfg.Listen)
+		err = srv.ListenAndServeTLS(cfg.TLS.Cert, cfg.TLS.Key)
+	} else {
+		slog.Info("listening (HTTP)", "addr", cfg.Listen)
+		err = srv.ListenAndServe()
+	}
+	if !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil

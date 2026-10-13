@@ -13,6 +13,7 @@ import {
   Plug,
   RefreshCw,
   Send,
+  SquareTerminal,
   Unplug,
   Volume2,
   VolumeX,
@@ -33,6 +34,7 @@ import type { ConsoleController } from '@/composables/useConsole'
 import { type ClipboardReadState, requestClipboardRead, watchClipboardRead } from '@/consoles/clipboard'
 import { consoleDrivers } from '@/consoles/registry'
 import type { ConsoleProtocol, ScaleMode } from '@/consoles/types'
+import AgentPanel from './AgentPanel.vue'
 import SidebarSection from './SidebarSection.vue'
 
 const props = defineProps<{
@@ -352,6 +354,13 @@ const soundOn = computed({
           </p>
         </SidebarSection>
         <Separator />
+
+        <template v-if="vm?.agent">
+          <SidebarSection title="Agent" :icon="SquareTerminal">
+            <AgentPanel :vm="vm" />
+          </SidebarSection>
+          <Separator />
+        </template>
 
         <SidebarSection title="Audio" :icon="Volume2">
           <template v-if="c.capabilities.value?.audio">

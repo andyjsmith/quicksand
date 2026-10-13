@@ -26,14 +26,16 @@
       "cores": 0,
       "memoryMiB": 0,
       "maxCores": 8,
-      "maxMemoryMiB": 16384
+      "maxMemoryMiB": 16384,
+      "agent": false
     },
     {
       "id": "debian",
       "vmid": 101,
       "node": "pve",
       "name": "Debian 13",
-      "os": "linux"
+      "os": "linux",
+      "agent": true
     }
   ],
   "networks": [
@@ -54,5 +56,18 @@
       "vlan": 105,
       "label": "Internet access"
     }
-  ]
+  ],
+  "agent": {
+    "privateKey": "ed25519-private:<output of quicksand agent keygen>",
+    "port": 7070,
+    "proxy": "",
+    "network": {
+      "bridge": "qsagent",
+      "subnet": "10.99.0.0/24",
+      "serverIP": "10.99.0.1",
+      "macPrefix": "02:51:53",
+      "nic": "net1",
+      "model": "e1000"
+    }
+  }
 }

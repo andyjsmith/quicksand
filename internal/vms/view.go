@@ -38,8 +38,10 @@ type View struct {
 	ActionError     string             `json:"actionError,omitempty"`
 	Consoles        []console.Protocol `json:"consoles"`
 	AbsolutePointer bool               `json:"absolutePointer"`
-	Owner           string             `json:"owner,omitempty"`
-	CreatedAt       time.Time          `json:"createdAt"`
+	// Agent is set for VMs with a Quicksand agent.
+	Agent     *AgentView `json:"agent,omitempty"`
+	Owner     string     `json:"owner,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
 }
 
 // consoleInfo caches what a VM's config says about connecting to it.
@@ -102,6 +104,7 @@ func (s *Service) View(ctx context.Context, vm store.VM) View {
 		v.Power, v.Uptime, v.CPU, v.Mem, v.MaxMem = st.PowerState(), st.Uptime, st.CPU, st.Mem, st.MaxMem
 	}
 	v.Booting = v.Power == "running" && s.Booting(vm.ID)
+	v.Agent = s.agentView(ctx, vm, v.Power == "running")
 	if info, ok := s.consoleInfo(ctx, vm); ok {
 		v.Consoles, v.AbsolutePointer = info.protocols, info.absolutePointer
 	}

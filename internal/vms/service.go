@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"quicksand/internal/agentclient"
 	"quicksand/internal/config"
 	"quicksand/internal/pve"
 	"quicksand/internal/store"
@@ -51,6 +53,10 @@ type Service struct {
 	consoles map[string]consoleInfo
 	// boots holds the boot watch of VMs whose guest OS is starting.
 	boots map[string]*bootWatch
+
+	// agents is nil when no agent is configured.
+	agents *agentclient.Client
+	probes agentProbes
 }
 
 type bootWatch struct{ cancel context.CancelFunc }
@@ -65,9 +71,12 @@ type actionState struct {
 	Error  string
 }
 
-func NewService(cfg *config.Config, client *pve.Client, s *store.Store, hub *Hub) *Service {
+// NewService creates the VM service. agents may be nil if no agent is
+// configured.
+func NewService(cfg *config.Config, client *pve.Client, s *store.Store, hub *Hub, agents *agentclient.Client) *Service {
 	return &Service{cfg: cfg, pve: client, store: s, hub: hub, jobs: map[string]*job{}, actions: map[string]actionState{},
-		consoles: map[string]consoleInfo{}, boots: map[string]*bootWatch{}}
+		consoles: map[string]consoleInfo{}, boots: map[string]*bootWatch{},
+		agents: agents, probes: agentProbes{results: map[string]agentProbe{}}}
 }
 
 // Recover handles jobs interrupted by a restart: unfinished deployments are
@@ -231,6 +240,7 @@ func (s *Service) runDeploy(ctx context.Context, vm store.VM, tmpl config.Templa
 
 	// 2. Configure (70-85%).
 	progress("Configuring hardware", 0.7)
+	hasAgent := tmpl.Agent && s.cfg.Agent != nil
 	cfg, err := s.pve.VMConfig(ctx, vm.Node, vm.VMID)
 	if err != nil {
 		s.fail(vm, fmt.Errorf("read config: %w", err))
@@ -246,11 +256,21 @@ func (s *Service) runDeploy(ctx context.Context, vm store.VM, tmpl config.Templa
 	if _, ok := cfg["balloon"]; ok {
 		remove = append(remove, "balloon")
 	}
+	agentNIC := ""
+	if hasAgent {
+		agentNIC = s.cfg.Agent.Network.NIC
+		nic, err := s.assignAgentNIC(ctx, &vm)
+		if err != nil {
+			s.fail(vm, fmt.Errorf("agent network: %w", err))
+			return
+		}
+		set[agentNIC] = nic
+	}
 	if network.Isolated() {
 		// A NIC without a bridge would get QEMU user-mode networking (NAT
 		// to the host's network), so isolation means no NIC at all.
 		for key := range cfg {
-			if isNetKey(key) {
+			if isNetKey(key) && key != agentNIC {
 				remove = append(remove, key)
 			}
 		}
@@ -262,9 +282,30 @@ func (s *Service) runDeploy(ctx context.Context, vm store.VM, tmpl config.Templa
 		}
 		set["net0"] = pve.SetNetBridge(net0, *network.Bridge, network.VLAN)
 	}
+	if hasAgent {
+		// Only the agent NIC goes through the VM firewall Quicksand turns on
+		// below; the others stay as unfiltered as they were.
+		for key, value := range cfg {
+			if !isNetKey(key) || key == agentNIC || slices.Contains(remove, key) {
+				continue
+			}
+			current, _ := value.(string)
+			if v, ok := set[key]; ok {
+				current = v
+			}
+			set[key] = pve.SetNetOption(current, "firewall", "0")
+		}
+	}
 	if err := s.pve.UpdateConfig(ctx, vm.Node, vm.VMID, set, remove); err != nil {
 		s.fail(vm, fmt.Errorf("configure: %w", err))
 		return
+	}
+	if hasAgent {
+		progress("Configuring the agent firewall", 0.8)
+		if err := s.configureAgentFirewall(ctx, vm); err != nil {
+			s.fail(vm, fmt.Errorf("agent firewall: %w", err))
+			return
+		}
 	}
 
 	// 3. Power on (85-100%). The VM is usable from here; the guest OS
@@ -279,15 +320,16 @@ func (s *Service) runDeploy(ctx context.Context, vm store.VM, tmpl config.Templa
 		return
 	}
 	s.progress(vm, store.VMReady, "", 1)
-	slog.Info("vm ready", "id", vm.ID, "vmid", vm.VMID)
-	if agentEnabled(cfg) {
-		s.watchBoot(vm)
+	slog.Info("vm ready", "id", vm.ID, "vmid", vm.VMID, "agentIP", vm.AgentIP)
+	if agentEnabled(cfg) || vm.AgentIP != "" {
+		s.watchBoot(vm, agentEnabled(cfg))
 	}
 }
 
-// watchBoot marks a VM as booting until its guest agent answers, giving up
+// watchBoot marks a VM as booting until an agent answers (the QEMU guest
+// agent if qemuAgent, or the Quicksand agent if the VM has one), giving up
 // after bootWatchTimeout or when the VM stops.
-func (s *Service) watchBoot(vm store.VM) {
+func (s *Service) watchBoot(vm store.VM, qemuAgent bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), bootWatchTimeout)
 	w := &bootWatch{cancel: cancel}
 	s.mu.Lock()
@@ -314,7 +356,7 @@ func (s *Service) watchBoot(vm store.VM) {
 		// after the grace period) has really stopped.
 		started, seenRunning := time.Now(), false
 		for {
-			if s.pve.AgentPing(ctx, vm.Node, vm.VMID) == nil {
+			if qemuAgent && s.pve.AgentPing(ctx, vm.Node, vm.VMID) == nil || s.agentAnswers(ctx, vm) {
 				return
 			}
 			if st, err := s.pve.Status(ctx, vm.Node, vm.VMID); err == nil {
@@ -444,8 +486,8 @@ func (s *Service) Power(ctx context.Context, vm store.VM, action pve.PowerAction
 		}
 		bootsOS := action == pve.PowerStart || action == pve.PowerReboot || action == pve.PowerReset
 		if err == nil && bootsOS {
-			if info, ok := s.consoleInfo(ctx, vm); ok && info.agent {
-				s.watchBoot(vm)
+			if info, ok := s.consoleInfo(ctx, vm); ok && (info.agent || vm.AgentIP != "") {
+				s.watchBoot(vm, info.agent)
 			}
 		}
 		s.setAction(vm, state)
@@ -496,6 +538,7 @@ func (s *Service) remove(vm store.VM) {
 	delete(s.actions, vm.ID)
 	delete(s.consoles, vm.ID)
 	s.mu.Unlock()
+	s.forgetProbe(vm.ID)
 	slog.Info("vm destroyed", "id", vm.ID, "vmid", vm.VMID)
 	s.hub.Publish(Event{VMID: vm.ID, OwnerID: vm.OwnerID, Deleted: true})
 }

@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/json"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -10,6 +12,9 @@ import (
 	"strings"
 	"testing"
 
+	"quicksand/internal/agent"
+	"quicksand/internal/agentclient"
+	"quicksand/internal/agentproto"
 	"quicksand/internal/auth"
 	"quicksand/internal/config"
 	"quicksand/internal/pve"
@@ -25,6 +30,10 @@ type testEnv struct {
 }
 
 func newTestEnv(t *testing.T) *testEnv {
+	return newTestEnvWithAgents(t, nil)
+}
+
+func newTestEnvWithAgents(t *testing.T, agents *agentclient.Client) *testEnv {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -41,7 +50,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	hub := vms.NewHub()
 	srv := httptest.NewServer(New(Deps{
 		Config: cfg, PVE: client, Store: db, Sessions: auth.NewSessions(db, false),
-		VMs: vms.NewService(cfg, client, db, hub), Hub: hub,
+		VMs: vms.NewService(cfg, client, db, hub, agents), Hub: hub,
 	}))
 	t.Cleanup(srv.Close)
 
@@ -120,6 +129,8 @@ func TestAuthAndAccessControl(t *testing.T) {
 		{"me", user, "GET", "/api/auth/me", "", nil, 200},
 		{"user lists users", user, "GET", "/api/admin/users", "", nil, 403},
 		{"admin lists users", admin, "GET", "/api/admin/users", "", nil, 200},
+		{"user reads agent settings", user, "GET", "/api/admin/agent", "", nil, 403},
+		{"admin reads agent settings", admin, "GET", "/api/admin/agent", "", nil, 200},
 		{"user lists all vms", user, "GET", "/api/vms?all=1", "", nil, 403},
 		{"user reads admin's vm", user, "GET", "/api/vms/" + vm.ID, "", nil, 404},
 		{"user destroys admin's vm", user, "DELETE", "/api/vms/" + vm.ID, "", nil, 404},
@@ -144,5 +155,69 @@ func TestAuthAndAccessControl(t *testing.T) {
 	do(t, user, "POST", e.srv.URL+"/api/auth/logout", "", nil)
 	if resp := do(t, user, "GET", e.srv.URL+"/api/auth/me", "", nil); resp.StatusCode != 401 {
 		t.Errorf("after logout: got %s, want 401", resp.Status)
+	}
+}
+
+func TestAgentExecThroughAPI(t *testing.T) {
+	// A real agent, trusting a fresh server key.
+	key, _ := agentproto.GenerateKey()
+	pub := key.Public().(ed25519.PublicKey)
+	a, err := agent.New(agent.Config{AuthorizedKeys: []string{agentproto.FormatPublicKey(pub)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentSrv := httptest.NewUnstartedServer(a.Handler())
+	agentSrv.TLS, _ = a.TLSConfig()
+	agentSrv.StartTLS()
+	t.Cleanup(agentSrv.Close)
+	agents, err := agentclient.New(agentclient.Options{Key: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	e := newTestEnvWithAgents(t, agents)
+	ctx := context.Background()
+	vm, err := e.store.CreateVM(ctx, store.VM{
+		ID: "vm1", OwnerID: e.user.ID, Name: "vm1", TemplateID: "t", Node: "n",
+		Cores: 1, MemoryMiB: 512, NetworkID: "n", State: store.VMReady,
+		AgentIP: strings.TrimPrefix(agentSrv.URL, "https://"),
+	}, 100, 100, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := e.client(t, "user", "user-password")
+
+	req, _ := http.NewRequest("POST", e.srv.URL+"/api/vms/"+vm.ID+"/exec", strings.NewReader(`{"shell":"echo hi; exit 2"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := user.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var res agentproto.ExecResponse
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil || resp.StatusCode != 200 {
+		t.Fatalf("exec: %s, %v", resp.Status, err)
+	}
+	if res.ExitCode != 2 || strings.TrimSpace(string(res.Stdout)) != "hi" {
+		t.Errorf("exec result = %+v", res)
+	}
+
+	if r := do(t, user, "GET", e.srv.URL+"/api/vms/"+vm.ID+"/agent", "", nil); r.StatusCode != 200 {
+		t.Errorf("agent info: %s", r.Status)
+	}
+	if r := do(t, user, "POST", e.srv.URL+"/api/vms/"+vm.ID+"/exec", `{}`, nil); r.StatusCode != 400 {
+		t.Errorf("empty exec: %s, want 400", r.Status)
+	}
+	// Another user can't reach this VM's agent.
+	admin := e.client(t, "admin", "admin-password")
+	if _, err := auth.CreateUser(ctx, e.store, "other", "other-password", false); err != nil {
+		t.Fatal(err)
+	}
+	stranger := e.client(t, "other", "other-password")
+	if r := do(t, stranger, "POST", e.srv.URL+"/api/vms/"+vm.ID+"/exec", `{"shell":"id"}`, nil); r.StatusCode != 404 {
+		t.Errorf("stranger exec: %s, want 404", r.Status)
+	}
+	if r := do(t, admin, "POST", e.srv.URL+"/api/vms/"+vm.ID+"/exec", `{"shell":"true"}`, nil); r.StatusCode != 200 {
+		t.Errorf("admin exec: %s, want 200", r.Status)
 	}
 }

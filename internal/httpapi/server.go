@@ -27,6 +27,8 @@ type Server struct {
 	hub      *vms.Hub
 	consoles *console.Manager
 	mux      *http.ServeMux
+
+	agentPublicKey string
 }
 
 type Deps struct {
@@ -38,11 +40,14 @@ type Deps struct {
 	Hub      *vms.Hub
 	// Static, if non-nil, is the built web client served for non-API paths.
 	Static fs.FS
+	// AgentPublicKey is the key agents must trust; empty without an agent.
+	AgentPublicKey string
 }
 
 func New(d Deps) *Server {
 	s := &Server{
 		cfg: d.Config, pve: d.PVE, store: d.Store, sessions: d.Sessions, vms: d.VMs, hub: d.Hub,
+		agentPublicKey: d.AgentPublicKey,
 		// Proxmox console tickets are valid for about 30 seconds; new
 		// connections for a session are refused after that.
 		consoles: console.NewManager(30 * time.Second),
@@ -64,9 +69,12 @@ func New(d Deps) *Server {
 	s.mux.Handle("DELETE /api/vms/{id}", user(s.handleDestroy))
 	s.mux.Handle("POST /api/vms/{id}/power", user(s.handlePower))
 	s.mux.Handle("POST /api/vms/{id}/console", user(s.handleCreateConsole))
+	s.mux.Handle("GET /api/vms/{id}/agent", user(s.handleAgentInfo))
+	s.mux.Handle("POST /api/vms/{id}/exec", user(s.handleAgentExec))
 	s.mux.Handle("GET /api/console/{id}/ws", user(s.handleConsoleWS))
 	s.mux.Handle("GET /api/events", user(s.handleEvents))
 
+	s.mux.Handle("GET /api/admin/agent", admin(s.handleAgentSettings))
 	s.mux.Handle("GET /api/admin/users", admin(s.handleListUsers))
 	s.mux.Handle("POST /api/admin/users", admin(s.handleCreateUser))
 	s.mux.Handle("PATCH /api/admin/users/{id}", admin(s.handleUpdateUser))

@@ -55,6 +55,9 @@ var migrations = []string{
 		created_at  INTEGER NOT NULL
 	);
 	CREATE INDEX vms_owner ON vms(owner_id);`,
+	// 2: agent addresses.
+	`ALTER TABLE vms ADD COLUMN agent_ip TEXT NOT NULL DEFAULT '';
+	CREATE UNIQUE INDEX vms_agent_ip ON vms(agent_ip) WHERE agent_ip != '';`,
 }
 
 func Open(path string) (*Store, error) {

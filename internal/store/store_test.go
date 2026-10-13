@@ -91,3 +91,39 @@ func TestVMIDAllocation(t *testing.T) {
 		t.Fatalf("VMs = %d, %v", len(vms), err)
 	}
 }
+
+func TestAgentIPAllocation(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	u, _ := s.CreateUser(ctx, "carol", "hash", false)
+	for _, id := range []string{"a", "b", "c"} {
+		if _, err := s.CreateVM(ctx, VM{ID: id, OwnerID: u.ID, Name: id, TemplateID: "t", Node: "n",
+			Cores: 1, MemoryMiB: 512, NetworkID: "net", State: VMDeploying}, 100, 110, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pool := []string{"10.0.0.2", "10.0.0.3"}
+	next := func(i int) (string, bool) {
+		if i >= len(pool) {
+			return "", false
+		}
+		return pool[i], true
+	}
+	if ip, err := s.AssignAgentIP(ctx, "a", next); err != nil || ip != "10.0.0.2" {
+		t.Fatalf("a: %q, %v", ip, err)
+	}
+	if ip, err := s.AssignAgentIP(ctx, "b", next); err != nil || ip != "10.0.0.3" {
+		t.Fatalf("b: %q, %v", ip, err)
+	}
+	if _, err := s.AssignAgentIP(ctx, "c", next); !errors.Is(err, ErrNoAgentIP) {
+		t.Fatalf("c: got %v, want ErrNoAgentIP", err)
+	}
+	if v, _ := s.VM(ctx, "a"); v.AgentIP != "10.0.0.2" {
+		t.Errorf("stored agent IP = %q", v.AgentIP)
+	}
+	// Destroying a VM frees its address.
+	s.DeleteVM(ctx, "a")
+	if ip, err := s.AssignAgentIP(ctx, "c", next); err != nil || ip != "10.0.0.2" {
+		t.Fatalf("c after delete: %q, %v", ip, err)
+	}
+}

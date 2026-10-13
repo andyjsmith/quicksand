@@ -18,8 +18,12 @@ const (
 	VMDestroying VMState = "destroying"
 )
 
-// ErrNoVMID is returned when every VM ID in the configured pool is in use.
-var ErrNoVMID = errors.New("no free VM IDs")
+var (
+	// ErrNoVMID is returned when every VM ID in the configured pool is in use.
+	ErrNoVMID = errors.New("no free VM IDs")
+	// ErrNoAgentIP is returned when the agent subnet has no free addresses.
+	ErrNoAgentIP = errors.New("no free agent addresses")
+)
 
 type VM struct {
 	ID         string
@@ -37,16 +41,18 @@ type VM struct {
 	Progress  float64
 	Error     string
 	CreatedAt time.Time
+	// AgentIP is the VM's address on the agent network, if it has an agent.
+	AgentIP string
 }
 
 const vmColumns = `id, owner_id, name, template_id, node, vmid, cores, memory_mib, network_id,
-	state, step, progress, error, created_at`
+	state, step, progress, error, created_at, agent_ip`
 
 func scanVM(row interface{ Scan(...any) error }) (VM, error) {
 	var v VM
 	var created int64
 	err := row.Scan(&v.ID, &v.OwnerID, &v.Name, &v.TemplateID, &v.Node, &v.VMID, &v.Cores, &v.MemoryMiB,
-		&v.NetworkID, &v.State, &v.Step, &v.Progress, &v.Error, &created)
+		&v.NetworkID, &v.State, &v.Step, &v.Progress, &v.Error, &created, &v.AgentIP)
 	if errors.Is(err, sql.ErrNoRows) {
 		return VM{}, ErrNotFound
 	}
@@ -92,9 +98,9 @@ func (s *Store) CreateVM(ctx context.Context, v VM, fromID, toID int, exclude ma
 
 	v.CreatedAt = time.Now().UTC().Truncate(time.Second)
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO vms (`+vmColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO vms (`+vmColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		v.ID, v.OwnerID, v.Name, v.TemplateID, v.Node, v.VMID, v.Cores, v.MemoryMiB, v.NetworkID,
-		v.State, v.Step, v.Progress, v.Error, unix(v.CreatedAt))
+		v.State, v.Step, v.Progress, v.Error, unix(v.CreatedAt), v.AgentIP)
 	if err != nil {
 		return VM{}, err
 	}
@@ -138,4 +144,41 @@ func (s *Store) UpdateVMProgress(ctx context.Context, id string, state VMState, 
 
 func (s *Store) DeleteVM(ctx context.Context, id string) error {
 	return expectRow(s.db.ExecContext(ctx, `DELETE FROM vms WHERE id = ?`, id))
+}
+
+// AssignAgentIP gives a VM the first address next yields (for i = 0, 1, ...)
+// that no other VM uses. next returns false when the pool is exhausted.
+func (s *Store) AssignAgentIP(ctx context.Context, id string, next func(i int) (string, bool)) (string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	used := map[string]bool{}
+	rows, err := tx.QueryContext(ctx, `SELECT agent_ip FROM vms WHERE agent_ip != ''`)
+	if err != nil {
+		return "", err
+	}
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			rows.Close()
+			return "", err
+		}
+		used[ip] = true
+	}
+	rows.Close()
+	for i := 0; ; i++ {
+		ip, ok := next(i)
+		if !ok {
+			return "", ErrNoAgentIP
+		}
+		if used[ip] {
+			continue
+		}
+		if err := expectRow(tx.ExecContext(ctx, `UPDATE vms SET agent_ip = ? WHERE id = ?`, ip, id)); err != nil {
+			return "", err
+		}
+		return ip, tx.Commit()
+	}
 }

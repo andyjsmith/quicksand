@@ -26,7 +26,12 @@ export const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
-  const user = await useAuth().ensureUser()
+  // If the server can't be reached (e.g. restarting), treat the session as
+  // unknown and show the sign-in page rather than a blank one; the check is
+  // retried on the next navigation.
+  const user = await useAuth()
+    .ensureUser()
+    .catch(() => null)
   if (to.meta.public) return user && to.name === 'login' ? { name: 'dashboard' } : true
   if (!user) return { name: 'login', query: to.fullPath === '/' ? {} : { redirect: to.fullPath } }
   if (to.meta.admin && !user.isAdmin) return { name: 'dashboard' }

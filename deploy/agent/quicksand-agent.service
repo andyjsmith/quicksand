@@ -1,0 +1,14 @@
+[Unit]
+Description=Quicksand guest agent
+# See docs/agent.md in the Quicksand repository.
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+# Root is needed to configure the agent network interface.
+ExecStart=/usr/local/bin/quicksand-agent -config /etc/quicksand-agent/config.json
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

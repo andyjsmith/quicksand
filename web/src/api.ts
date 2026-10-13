@@ -60,9 +60,47 @@ export interface VM {
   consoles: ConsoleProtocol[]
   /** False when the guest has no USB tablet, so a VNC mouse is relative. */
   absolutePointer: boolean
+  /** Set for VMs with a Quicksand agent. */
+  agent?: AgentStatus
   /** Set when an administrator lists everyone's VMs. */
   owner?: string
   createdAt: string
+}
+
+export interface AgentStatus {
+  ip: string
+  status: 'connected' | 'unreachable'
+  hostname?: string
+  os?: string
+  version?: string
+  error?: string
+}
+
+export interface ExecRequest {
+  shell?: string
+  argv?: string[]
+  timeoutSeconds?: number
+}
+
+export interface ExecResult {
+  /** -1 when the command couldn't be started or was killed. */
+  exitCode: number
+  /** Base64 (JSON-encoded bytes). */
+  stdout: string | null
+  stderr: string | null
+  truncated?: boolean
+  timedOut?: boolean
+  error?: string
+  durationMs: number
+}
+
+/** What agent configs in templates must contain (admins only). */
+export interface AgentSettings {
+  enabled: boolean
+  publicKey?: string
+  port?: number
+  subnet?: string
+  macPrefix?: string
 }
 
 export interface DeployRequest {
@@ -125,15 +163,24 @@ export const api = {
   deploy: (req: DeployRequest) => request<VM>('POST', '/api/vms', req),
   destroy: (id: string) => request<void>('DELETE', vmPath(id)),
   power: (id: string, action: PowerAction) => request<void>('POST', `${vmPath(id)}/power`, { action }),
+  exec: (id: string, req: ExecRequest) => request<ExecResult>('POST', `${vmPath(id)}/exec`, req),
   createConsole: (id: string, protocol: ConsoleProtocol) =>
     request<ConsoleSession>('POST', `${vmPath(id)}/console`, { protocol }),
 
+  agentSettings: () => request<AgentSettings>('GET', '/api/admin/agent'),
   users: () => request<User[]>('GET', '/api/admin/users'),
   createUser: (username: string, password: string, isAdmin: boolean) =>
     request<User>('POST', '/api/admin/users', { username, password, isAdmin }),
   updateUser: (id: number, changes: { password?: string; isAdmin?: boolean }) =>
     request<User>('PATCH', `/api/admin/users/${id}`, changes),
   deleteUser: (id: number) => request<void>('DELETE', `/api/admin/users/${id}`),
+}
+
+/** Decodes base64 command output as UTF-8 (invalid bytes become U+FFFD). */
+export function decodeOutput(b64: string | null): string {
+  if (!b64) return ''
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+  return new TextDecoder().decode(bytes)
 }
 
 export function errorMessage(e: unknown): string {

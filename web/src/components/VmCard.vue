@@ -9,6 +9,7 @@ import {
   RotateCcw,
   RotateCw,
   Square,
+  SquareTerminal,
   Trash2,
 } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
@@ -177,6 +178,13 @@ const primaryPower = computed<{ action: PowerAction; label: string } | null>(() 
           {{ status.label }}
           <span v-if="ready && vm.power === 'running' && vm.uptime" class="text-muted-foreground">
             · up {{ formatUptime(vm.uptime) }}
+          </span>
+          <span
+            v-if="vm.agent && ready && vm.power === 'running'"
+            class="text-muted-foreground flex items-center gap-1"
+            :title="vm.agent.status === 'connected' ? `Agent connected (${vm.agent.hostname}, ${vm.agent.ip})` : `Agent not reachable at ${vm.agent.ip}`"
+          >
+            · <SquareTerminal class="size-3" :class="vm.agent.status === 'connected' ? 'text-emerald-500' : ''" /> agent
           </span>
         </span>
         <Button v-if="canConnect" size="sm" as-child>

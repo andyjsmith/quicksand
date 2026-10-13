@@ -196,6 +196,18 @@ func IsNotFound(err error) bool {
 		pe.Status == http.StatusInternalServerError && strings.Contains(pe.Message, "does not exist"))
 }
 
+// SetNetOption sets one option (e.g. firewall=0) in a netX property,
+// replacing any existing value.
+func SetNetOption(net, key, value string) string {
+	parts := []string{}
+	for p := range strings.SplitSeq(net, ",") {
+		if p != "" && !strings.HasPrefix(p, key+"=") {
+			parts = append(parts, p)
+		}
+	}
+	return strings.Join(append(parts, key+"="+value), ",")
+}
+
 // SetNetBridge rewrites a netX property (e.g. "virtio=AA:BB:..,bridge=vmbr0,firewall=1")
 // to use another bridge and VLAN tag (0 for none), keeping the model, MAC
 // address and other options.

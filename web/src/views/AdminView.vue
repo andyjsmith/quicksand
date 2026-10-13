@@ -1,8 +1,21 @@
 <script setup lang="ts">
 import { useIntervalFn, useTitle } from '@vueuse/core'
-import { CircleAlert, EllipsisVertical, KeyRound, Monitor, Shield, ShieldOff, Trash2, UserPlus, Users } from '@lucide/vue'
+import {
+  Check,
+  CircleAlert,
+  Copy,
+  EllipsisVertical,
+  KeyRound,
+  Monitor,
+  Shield,
+  ShieldOff,
+  SquareTerminal,
+  Trash2,
+  UserPlus,
+  Users,
+} from '@lucide/vue'
 import { onMounted, ref } from 'vue'
-import { api, errorMessage, type User, type VM } from '@/api'
+import { api, errorMessage, type AgentSettings, type User, type VM } from '@/api'
 import AppHeader from '@/components/AppHeader.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -61,7 +74,22 @@ async function loadVMs() {
     error.value = errorMessage(e)
   }
 }
-onMounted(() => Promise.all([loadUsers(), loadVMs()]))
+const agent = ref<AgentSettings | null>(null)
+onMounted(() =>
+  Promise.all([
+    loadUsers(),
+    loadVMs(),
+    api.agentSettings().then((a) => (agent.value = a), () => {}),
+  ]),
+)
+
+const copied = ref(false)
+async function copyKey() {
+  if (!agent.value?.publicKey) return
+  await navigator.clipboard.writeText(agent.value.publicKey)
+  copied.value = true
+  setTimeout(() => (copied.value = false), 1500)
+}
 useIntervalFn(loadVMs, 5000)
 
 // A single dialog serves "add user" (target null) and "reset password".
@@ -202,6 +230,27 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
         </CardContent>
       </Card>
 
+      <Card v-if="agent?.enabled">
+        <CardHeader>
+          <CardTitle class="flex items-center gap-2"><SquareTerminal class="size-4" /> Agent</CardTitle>
+          <CardDescription>
+            Templates with the Quicksand agent must trust this server key. Pass it to the agent installer
+            (see docs/agent.md).
+          </CardDescription>
+        </CardHeader>
+        <CardContent class="flex flex-col gap-3">
+          <div class="flex items-center gap-2">
+            <code class="bg-muted min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-xs">{{ agent.publicKey }}</code>
+            <Button variant="outline" size="sm" @click="copyKey">
+              <component :is="copied ? Check : Copy" /> {{ copied ? 'Copied' : 'Copy' }}
+            </Button>
+          </div>
+          <p class="text-muted-foreground text-xs">
+            Agent network {{ agent.subnet }} · port {{ agent.port }} · MAC prefix {{ agent.macPrefix }}
+          </p>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle class="flex items-center gap-2"><Monitor class="size-4" /> All machines</CardTitle>
@@ -217,6 +266,7 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
                   <TableHead>Template</TableHead>
                   <TableHead>VM ID</TableHead>
                   <TableHead>Resources</TableHead>
+                  <TableHead>Agent</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -227,6 +277,10 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
                   <TableCell>{{ vm.templateName }}</TableCell>
                   <TableCell class="font-mono">{{ vm.vmid }}</TableCell>
                   <TableCell>{{ vm.cores }} CPUs · {{ formatMemory(vm.memoryMiB) }} · {{ vm.networkLabel }}</TableCell>
+                  <TableCell class="font-mono text-xs">
+                    <template v-if="vm.agent">{{ vm.agent.ip }} ({{ vm.agent.status }})</template>
+                    <span v-else class="text-muted-foreground">—</span>
+                  </TableCell>
                   <TableCell>
                     <span class="inline-flex items-center gap-1.5">
                       <span class="inline-block size-2 rounded-full" :class="vmStatus(vm).dot" />
@@ -234,7 +288,7 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
                     </span>
                   </TableCell>
                 </TableRow>
-                <TableEmpty v-if="!vms.length" :colspan="6">No machines are deployed.</TableEmpty>
+                <TableEmpty v-if="!vms.length" :colspan="7">No machines are deployed.</TableEmpty>
               </TableBody>
             </Table>
           </div>
