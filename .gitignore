@@ -1,0 +1,8 @@
+# Local credentials and config
+creds.txt
+config.json
+
+# Build output
+/quicksand
+web/node_modules/
+web/dist/

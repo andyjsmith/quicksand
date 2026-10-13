@@ -1,0 +1,10 @@
+{
+  "listen": "127.0.0.1:8484",
+  "pve": {
+    "url": "https://pve.example.lan:8006",
+    "tokenId": "quicksand@pve!quicksand",
+    "tokenSecret": "00000000-0000-0000-0000-000000000000",
+    "fingerprint": "",
+    "insecureSkipVerify": false
+  }
+}
