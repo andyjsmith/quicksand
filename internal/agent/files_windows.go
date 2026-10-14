@@ -10,12 +10,13 @@ import (
 	"quicksand/internal/agentproto"
 )
 
-// The agent runs as SYSTEM, whose home directory is no use to anyone.
+// defaultFilesDir is where files and shells start when the server doesn't
+// say (the template's filesDir): the root of the system drive.
 func defaultFilesDir() string {
-	if public := os.Getenv("PUBLIC"); public != "" {
-		return public
+	if drive := os.Getenv("SystemDrive"); drive != "" {
+		return drive + `\`
 	}
-	return `C:\Users\Public`
+	return `C:\`
 }
 
 // "/" stands for the list of drives above the drive roots.

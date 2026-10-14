@@ -30,7 +30,11 @@ onBeforeUnmount(capturePreview)
 const ctl = useConsole(
   toRef(props, 'id'),
   viewport,
-  () => vm.value?.agent?.status === 'connected' && vm.value.agent.os === 'windows',
+  // Linux guests follow VNC resize requests natively, so only SPICE (without
+  // spice-vdagent) needs the agent there.
+  (protocol) =>
+    vm.value?.agent?.status === 'connected' &&
+    (vm.value.agent.os === 'windows' || (vm.value.agent.os === 'linux' && protocol === 'spice')),
 )
 
 const machines = useMachines()
@@ -110,16 +114,34 @@ useEventListener(
   { capture: true },
 )
 
-const { isFullscreen, toggle: toggleFullscreenRaw } = useFullscreen(root)
+const { isFullscreen, exit: exitFullscreen } = useFullscreen(root)
+
+// In fullscreen, browser shortcuts (Ctrl+W, Ctrl+T, Ctrl+Tab, ...) go to the
+// guest instead: Firefox (152+) with the fullscreen keyboardLock option,
+// Chromium browsers with the Keyboard Lock API, which also captures Escape
+// (hold it to leave fullscreen) and the Windows key. Other browsers still
+// keep their own shortcuts.
+const keyboard = (navigator as Navigator & { keyboard?: { lock(): Promise<void>; unlock(): void } }).keyboard
+
 async function toggleFullscreen() {
-  await toggleFullscreenRaw()
-  // In fullscreen, capture keys like Escape and the Windows key for the guest
-  // (Chromium only; elsewhere this is a no-op).
-  const keyboard = (navigator as Navigator & { keyboard?: { lock(): Promise<void>; unlock(): void } }).keyboard
-  if (isFullscreen.value) await keyboard?.lock().catch(() => {})
-  else keyboard?.unlock()
   panelOpen.value = false
+  if (document.fullscreenElement) {
+    await exitFullscreen()
+    return
+  }
+  try {
+    await root.value?.requestFullscreen({ navigationUI: 'hide', keyboardLock: 'browser' } as FullscreenOptions)
+  } catch {
+    return
+  }
+  await keyboard?.lock().catch(() => {})
+  ctl.focus()
 }
+
+// However fullscreen ends (Escape, the browser), give the keys back.
+watch(isFullscreen, (full) => {
+  if (!full) keyboard?.unlock()
+})
 </script>
 
 <template>

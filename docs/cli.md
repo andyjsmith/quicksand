@@ -136,7 +136,8 @@ qs upload win1 setup.exe C:\Temp\installer.exe # to a new name
 ```
 
 Remote paths are absolute, or relative to the guest's files directory (`.`
-is that directory). A single upload without a remote path goes to the files
+is that directory): the template's `filesDir` setting, or the root of the
+guest's filesystem (`/`, or the system drive on Windows) without one. A single upload without a remote path goes to the files
 directory; with several files, the last argument is always the remote path,
 so end with `.` to upload them there. Like `scp`, uploading into a directory keeps the file's
 name, and existing files are overwritten. Only files can be uploaded.

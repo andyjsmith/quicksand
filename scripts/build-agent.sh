@@ -15,5 +15,4 @@ for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
 		-ldflags "-s -w -X quicksand/internal/agent.Version=$version" \
 		-o "$out/quicksand-agent-$os-$arch$ext" ./cmd/quicksand-agent
 done
-cp deploy/agent/* "$out/"
 echo "done: $out"

@@ -16,7 +16,8 @@ type Info struct {
 	OS              string `json:"os"`
 	Arch            string `json:"arch"`
 	User            string `json:"user"`
-	// FilesDir is where file browsing starts unless the server says otherwise.
+	// FilesDir is where file browsing starts unless the server says otherwise
+	// (the template's filesDir): the filesystem root, or the system drive.
 	FilesDir string `json:"filesDir"`
 	// PathSeparator is the guest's path separator, "/" or "\\".
 	PathSeparator string      `json:"pathSeparator"`

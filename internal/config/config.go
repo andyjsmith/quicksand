@@ -116,9 +116,10 @@ type Template struct {
 	// Agent says the template has the Quicksand agent installed; clones
 	// get a NIC on the agent network.
 	Agent bool `json:"agent"`
-	// FilesDir is where file browsing (and shells) start in the guest, e.g.
-	// "C:\\Users\\user\\Desktop". Empty means the agent's default: the
-	// agent user's home on Linux, C:\Users\Public on Windows.
+	// FilesDir is the guest's default path: where file browsing, shells and
+	// relative paths (e.g. qs upload/download) start, e.g. "/home/user" or
+	// "C:\\Users\\user\\Desktop". Empty means the root of the filesystem
+	// ("/", or the system drive on Windows).
 	FilesDir string `json:"filesDir"`
 	// Serial enables shells over a serial console: the Proxmox serial
 	// port to use, "serial0" to "serial3". Deploys add it (as a socket)

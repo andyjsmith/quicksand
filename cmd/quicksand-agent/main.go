@@ -25,9 +25,23 @@ func defaultConfigPath() string {
 }
 
 func main() {
-	// The agent runs itself in the console session to resize the display.
-	if len(os.Args) > 1 && os.Args[1] == "set-display" {
-		os.Exit(agent.RunDisplayHelper(os.Args[2:]))
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "install":
+			if err := cmdInstall(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "quicksand-agent install:", err)
+				os.Exit(1)
+			}
+			return
+		case "set-display":
+			// The agent runs itself in the console session to resize the display.
+			os.Exit(agent.RunDisplayHelper(os.Args[2:]))
+		}
+	}
+	flag.Usage = func() {
+		fmt.Fprintln(os.Stderr, "usage: quicksand-agent [-config path] [-log path] [-version]")
+		fmt.Fprintln(os.Stderr, "       quicksand-agent install -key ed25519:... [-subnet CIDR] [-port N]")
+		flag.PrintDefaults()
 	}
 	configPath := flag.String("config", defaultConfigPath(), "path to the agent configuration file")
 	logPath := flag.String("log", "", "append logs to this file instead of standard error")

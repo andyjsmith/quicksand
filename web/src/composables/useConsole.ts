@@ -23,7 +23,7 @@ import type {
  * canResizeGuest says whether the VM's agent can change the guest
  * resolution, for the remote scale mode where the protocol can't.
  */
-export function useConsole(vmId: Ref<string>, container: Ref<HTMLElement | null>, canResizeGuest?: () => boolean) {
+export function useConsole(vmId: Ref<string>, container: Ref<HTMLElement | null>, canResizeGuest?: (protocol: ConsoleProtocol) => boolean) {
   const protocol = ref<ConsoleProtocol | null>(null)
   const status = ref<ConsoleStatus>('idle')
   const message = ref<string>()
@@ -68,7 +68,7 @@ export function useConsole(vmId: Ref<string>, container: Ref<HTMLElement | null>
       d.connect(container.value, session, {
         scaleMode: scaleMode.value,
         audio: { ...audio.value },
-        resizeGuest: canResizeGuest?.() ? (size) => api.setDisplay(id, size.width, size.height) : undefined,
+        resizeGuest: canResizeGuest?.(to) ? (size) => api.setDisplay(id, size.width, size.height) : undefined,
       })
     } catch (e) {
       if (gen !== generation) return

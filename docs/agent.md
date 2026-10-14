@@ -29,7 +29,7 @@ replace or impersonate the agent within its own VM.
 
 ## Installing in a template
 
-Build the binaries and installers (on any machine with Go):
+Build the agent (on any machine with Go):
 
 ```sh
 ./scripts/build-agent.sh        # writes dist/agent/
@@ -41,17 +41,20 @@ Get the server's public key from the Admin page, or on the Quicksand host:
 sudo -u quicksand quicksand agent pubkey -config /etc/quicksand/config.json
 ```
 
-Copy `dist/agent/` into the template VM, then:
+Copy the agent binary for the template's OS and architecture from
+`dist/agent/` into the template VM and run its `install` command:
 
 **Linux** (as root; systemd):
 
 ```sh
-./install-linux.sh 'ed25519:<server public key>' 10.99.0.0/24
+./quicksand-agent-linux-amd64 install -key 'ed25519:<server public key>'
 ```
 
-This installs `/usr/local/bin/quicksand-agent`, `/etc/quicksand-agent/config.json`
-and the `quicksand-agent` service. If the distribution uses NetworkManager,
-stop it from running DHCP on the agent NIC (the second NIC, usually `ens19`):
+This installs `/usr/local/bin/quicksand-agent`, writes
+`/etc/quicksand-agent/config.json` (readable by root only) and the
+`quicksand-agent` systemd service, and starts it. If the distribution uses
+NetworkManager, stop it from running DHCP on the agent NIC (the second NIC
+in clones, usually `ens19`); the installer prints how:
 
 ```sh
 printf '[keyfile]\nunmanaged-devices=interface-name:ens19\n' > /etc/NetworkManager/conf.d/90-quicksand-agent.conf
@@ -60,19 +63,23 @@ printf '[keyfile]\nunmanaged-devices=interface-name:ens19\n' > /etc/NetworkManag
 (The agent re-applies its address every 30 seconds regardless.) Host
 firewalls (ufw, firewalld) must allow TCP 7070 on that NIC.
 
-**Windows** (elevated PowerShell):
+**Windows** (in an elevated prompt):
 
 ```powershell
-.\install-windows.ps1 -ServerKey "ed25519:<server public key>" -Subnet 10.99.0.0/24
+.\quicksand-agent-windows-amd64.exe install -key "ed25519:<server public key>"
 ```
 
 This installs `C:\Program Files\Quicksand\quicksand-agent.exe`, writes
 `C:\ProgramData\Quicksand\agent.json` (readable by SYSTEM and Administrators
 only), adds a Windows Firewall rule for the agent port, and registers the
 `QuicksandAgent` service (automatic start, LocalSystem, restarted on failure),
-logging to `C:\ProgramData\Quicksand\agent.log`. Running it again upgrades
-an existing install in place. Manage it like any service, e.g.
-`Restart-Service QuicksandAgent`.
+logging to `C:\ProgramData\Quicksand\agent.log`. Manage it like any service,
+e.g. `Restart-Service QuicksandAgent`.
+
+On both, `-subnet` sets the agent network if it isn't the default
+`10.99.0.0/24` (it must match Quicksand's config) and `-port` the agent port
+(7070). Running `install` again, with a newer binary or another key, upgrades
+the installation in place.
 
 Then shut the VM down, convert it to a template (or update the existing
 template), and set `"agent": true` on it in Quicksand's `config.json`.
@@ -124,13 +131,16 @@ Quicksand exposes these to signed-in users (for their own VMs) as
 `GET /api/vms/{id}/agent` and `POST /api/vms/{id}/exec`, and in the console's
 side panel.
 
-### Display resolution (Windows)
+### Display resolution
 
 `POST /v1/display` with `{"width": 1920, "height": 1080}` changes the guest's
 screen resolution. The web console uses it for its "Resize guest" mode when
-the protocol can't resize the guest itself: always over VNC, and over SPICE
-until the SPICE agent connects.
+the protocol can't resize the guest itself. The response gives the size
+set, the `adapter` used, and whether it was `exact`; widths are rounded down
+to a multiple of 8, and sizes kept between 640×480 and 8192×8192.
 
+**Windows.** The console uses the agent over VNC (QEMU's resize requests
+don't reach a Windows guest) and over SPICE until the SPICE agent connects.
 The agent runs as a service in session 0, which has no access to the screen,
 so for each change it starts a copy of itself (`quicksand-agent set-display
 W H`) in the console session, as SYSTEM, on whichever desktop has the input
@@ -145,9 +155,16 @@ virtio-win's `viogpuap` do:
 | `virtio` | VirtIO GPU from older virtio-win releases | The closest mode the driver offers |
 | other, or no driver installed | e.g. Microsoft Basic Display Adapter | The closest mode the driver offers |
 
-Widths are rounded down to a multiple of 8, and sizes are kept between
-640×480 and 8192×8192. The response gives the size set, the `adapter`, and
-whether it was `exact`. Linux agents answer 501 for now.
+**Linux.** With a `virtio` or `qxl` display, the console protocols resize
+Linux desktops exactly on their own: QEMU passes the client's size to the
+virtual GPU (from VNC, or from SPICE through spice-vdagent), and the desktop
+follows it. The console uses the agent only over SPICE without spice-vdagent.
+The agent changes the resolution of the desktop on seat0 (the login screen's
+or the user's), as that session's user: through GNOME's display
+configuration service (Wayland or X11; applied temporarily, so nothing is
+saved to the user's settings), or with `xrandr` on other X11 desktops. Both
+choose from the modes the display offers: the requested size if it's there,
+otherwise the largest that fits.
 
 ## Testing
 
