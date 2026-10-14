@@ -29,6 +29,7 @@ type Server struct {
 	mux      *http.ServeMux
 
 	agentPublicKey string
+	downloads      downloads
 }
 
 type Deps struct {
@@ -82,6 +83,8 @@ func New(d Deps) *Server {
 	s.mux.Handle("POST /api/vms/{id}/files/mkdir", user(s.handleMkdir))
 	s.mux.Handle("GET /api/vms/{id}/files/content", user(s.handleDownload))
 	s.mux.Handle("PUT /api/vms/{id}/files/content", user(s.handleUpload))
+	s.mux.Handle("POST /api/vms/{id}/files/zip", user(s.handlePrepareZip))
+	s.mux.Handle("GET /api/downloads/{token}", user(s.handlePreparedDownload))
 	s.mux.Handle("GET /api/vms/{id}/files/hash", user(s.handleHashFile))
 	s.mux.Handle("GET /api/console/{id}/ws", user(s.handleConsoleWS))
 	s.mux.Handle("GET /api/events", user(s.handleEvents))

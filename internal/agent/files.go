@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -137,7 +138,7 @@ func (a *Agent) handleDownload(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/zip")
 		w.Header().Set("Content-Disposition", attachment(name+".zip"))
 		w.WriteHeader(http.StatusOK)
-		if err := writeZip(w, p); err != nil {
+		if err := writeZip(w, p, ""); err != nil {
 			slog.Warn("zip directory", "path", p, "err", err)
 		}
 		return
@@ -153,29 +154,19 @@ func attachment(name string) string {
 	return mime.FormatMediaType("attachment", map[string]string{"filename": name})
 }
 
-// writeZip streams dir as a zip archive, skipping what it can't read.
-func writeZip(w io.Writer, dir string) error {
+// writeZip streams root, a file or a directory (its contents at the top of
+// the archive), as a zip archive, skipping what it can't read. A password
+// encrypts every file with ZipCrypto.
+func writeZip(w io.Writer, root, password string) error {
 	zw := zip.NewWriter(w)
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || path == dir {
-			return nil
-		}
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return nil
-		}
-		name := filepath.ToSlash(rel)
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			_, err := zw.CreateHeader(&zip.FileHeader{Name: name + "/", Modified: info.ModTime()})
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			return nil
-		}
+	create := func(fh *zip.FileHeader) (io.Writer, error) {
+		fh.Method = zip.Deflate
+		return zw.CreateHeader(fh)
+	}
+	if password != "" {
+		create = encryptEntries(zw, password)
+	}
+	addFile := func(path, name string, info fs.FileInfo) error {
 		f, err := os.Open(path)
 		if err != nil {
 			return nil
@@ -185,18 +176,75 @@ func writeZip(w io.Writer, dir string) error {
 		if err != nil {
 			return nil
 		}
-		hdr.Name, hdr.Method = name, zip.Deflate
-		out, err := zw.CreateHeader(hdr)
+		hdr.Name = name
+		out, err := create(hdr)
 		if err != nil {
 			return err
 		}
 		_, err = io.Copy(out, f)
 		return err
-	})
+	}
+
+	info, err := os.Stat(root)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		err = addFile(root, filepath.Base(root), info)
+	} else {
+		err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || path == root {
+				return nil
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return nil
+			}
+			name := filepath.ToSlash(rel)
+			info, err := d.Info()
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				_, err := zw.CreateHeader(&zip.FileHeader{Name: name + "/", Modified: info.ModTime()})
+				return err
+			}
+			if !info.Mode().IsRegular() {
+				return nil
+			}
+			return addFile(path, name, info)
+		})
+	}
 	if err != nil {
 		return err
 	}
 	return zw.Close()
+}
+
+// handleZip streams a file or directory as a password-protected (ZipCrypto)
+// zip archive. The password comes in the body (agentproto.ZipRequest).
+func (a *Agent) handleZip(w http.ResponseWriter, r *http.Request) {
+	p, err := resolvePath(r)
+	if err != nil || isDriveList(p) {
+		writeJSON(w, http.StatusBadRequest, agentproto.Error{Error: "invalid path"})
+		return
+	}
+	var req agentproto.ZipRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.Password == "" {
+		writeJSON(w, http.StatusBadRequest, agentproto.Error{Error: "a password is required"})
+		return
+	}
+	if _, err := os.Stat(p); err != nil {
+		writeFileError(w, err)
+		return
+	}
+	slog.Info("download encrypted zip", "path", p, "from", r.RemoteAddr)
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", attachment(filepath.Base(p)+".zip"))
+	w.WriteHeader(http.StatusOK)
+	if err := writeZip(w, p, req.Password); err != nil {
+		slog.Warn("zip", "path", p, "err", err)
+	}
 }
 
 // handleUpload writes the request body to a file, through a temporary file

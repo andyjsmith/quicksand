@@ -1,6 +1,7 @@
 package agentclient
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -91,6 +92,21 @@ func (c *Client) Download(ctx context.Context, host string, f FileRef) (*http.Re
 	if err != nil {
 		return nil, err
 	}
+	return c.send(req)
+}
+
+// DownloadZip streams a guest file or directory as a zip archive encrypted
+// with password. The caller closes the response body.
+func (c *Client) DownloadZip(ctx context.Context, host string, f FileRef, password string) (*http.Response, error) {
+	body, err := json.Marshal(agentproto.ZipRequest{Password: password})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+c.hostPort(host)+"/v1/files/zip"+f.query(), bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
 	return c.send(req)
 }
 

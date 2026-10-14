@@ -28,7 +28,7 @@ func TestParseForward(t *testing.T) {
 }
 
 func TestForward(t *testing.T) {
-	c := startServer(t)
+	c, _ := startServer(t)
 	// A guest-side service: echoes, then says goodbye on half-close.
 	svc, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

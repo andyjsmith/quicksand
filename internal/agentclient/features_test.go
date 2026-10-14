@@ -185,3 +185,29 @@ func isStatus(err error, status int) bool {
 	var e *Error
 	return errors.As(err, &e) && e.Status == status
 }
+
+func TestDownloadZip(t *testing.T) {
+	srv, c := startAgent(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "secret.txt"), []byte("top secret"), 0o644)
+
+	resp, err := c.DownloadZip(ctx, host(srv), FileRef{Base: dir, Path: "secret.txt"}, "infected")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(resp.Header.Get("Content-Disposition"), "secret.txt.zip") || len(data) < 30 || string(data[:2]) != "PK" {
+		t.Errorf("zip: %q, %d bytes", resp.Header.Get("Content-Disposition"), len(data))
+	}
+	if bytes.Contains(data, []byte("top secret")) {
+		t.Error("the archive holds the plaintext")
+	}
+	if _, err := c.DownloadZip(ctx, host(srv), FileRef{Base: dir, Path: "secret.txt"}, ""); !isStatus(err, 400) {
+		t.Errorf("no password: %v", err)
+	}
+	if _, err := c.DownloadZip(ctx, host(srv), FileRef{Base: dir, Path: "missing"}, "pw"); !isStatus(err, 404) {
+		t.Errorf("missing file: %v", err)
+	}
+}

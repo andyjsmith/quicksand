@@ -240,3 +240,33 @@ func (c *client) stream(path string) (net.Conn, error) {
 	conn.SetDeadline(time.Time{})
 	return s, nil
 }
+
+// send makes a request with a streamed body (size bytes, -1 if unknown)
+// and returns the response, still to be read, if it succeeded.
+func (c *client) send(method, path string, body io.Reader, size int64, contentType string) (*http.Response, error) {
+	req, err := http.NewRequest(method, strings.TrimRight(c.Server, "/")+path, body)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.ContentLength = size
+		req.Header.Set("Content-Type", contentType)
+	}
+	req.AddCookie(&http.Cookie{Name: "quicksand_session", Value: c.Session})
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		var e struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(data, &e) != nil || e.Error == "" {
+			e.Error = resp.Status
+		}
+		return nil, &apiError{Status: resp.StatusCode, Message: e.Error}
+	}
+	return resp, nil
+}

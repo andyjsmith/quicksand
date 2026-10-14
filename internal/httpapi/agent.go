@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -210,15 +209,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		writeAgentError(w, err)
 		return
 	}
-	defer resp.Body.Close()
-	for _, h := range []string{"Content-Type", "Content-Length", "Content-Disposition", "Last-Modified"} {
-		if v := resp.Header.Get(h); v != "" {
-			w.Header().Set(h, v)
-		}
-	}
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusOK)
-	io.Copy(w, resp.Body)
+	relayDownload(w, resp)
 }
 
 // handleUpload streams the request body to a guest file.

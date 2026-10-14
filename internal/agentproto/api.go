@@ -175,6 +175,13 @@ type Connection struct {
 	ProcessName string `json:"processName,omitempty"`
 }
 
+// ZipRequest is the body of POST /v1/files/zip, which streams a file or
+// directory as a zip archive encrypted with ZipCrypto (weak, but readable
+// by every unzip tool, Windows Explorer included).
+type ZipRequest struct {
+	Password string `json:"password"`
+}
+
 // FileHashes is returned by GET /v1/files/hash.
 type FileHashes struct {
 	Path   string `json:"path"`

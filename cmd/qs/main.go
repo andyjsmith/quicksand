@@ -27,6 +27,10 @@ Agent:
   ps <vm>                                    list the guest's processes
   kill [-f] <vm> <pid>                       end a guest process (-f: SIGKILL on Linux)
   netstat <vm>                               list the guest's TCP and UDP sockets
+  dir <vm> [path]                            list the guest's files directory, or path
+  exec [-timeout seconds] [-i] [-argv] <vm> <command...>
+                                             run one command and print its output (exits with its
+                                             code); -i: send stdin; -argv: no shell
   shell [-t | -T] [-shell program | -serial] <vm> [command...]
                                              open a shell in the guest, or run a command
       (a terminal when interactive; -t: always, -T: never; -shell: e.g. cmd or zsh
@@ -34,6 +38,14 @@ Agent:
       the default for VMs without a connected agent)
   forward <vm> [bind:]port:host:hostport...  forward local ports to host:hostport as the
                                              guest reaches it, like ssh -L; Ctrl-C stops
+  download [-r [-u]] [-e password] <vm> <remote path> [local path]
+                                             download a guest file (default: into the current
+                                             directory); -r: directories, as a .zip; -u: extract
+                                             them instead; -e: as a zip encrypted with password
+                                             ("-e -" asks for it)
+  upload <vm> <local file>... [remote path]  upload files (into <remote path> if it's a
+                                             directory; default and ".": the guest's files
+                                             directory; several files need a remote path)
 `
 
 func main() {
@@ -72,6 +84,14 @@ func main() {
 		err = cmdShell(args)
 	case "forward":
 		err = cmdForward(args)
+	case "dir", "ls-files":
+		err = cmdDir(args)
+	case "exec":
+		err = cmdExec(args)
+	case "download":
+		err = cmdDownload(args)
+	case "upload":
+		err = cmdUpload(args)
 	default:
 		fmt.Fprintf(os.Stderr, "qs: unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)

@@ -4,31 +4,6 @@ const lastPaths = new Map<string, string>()
 </script>
 
 <script setup lang="ts">
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpFromLine,
-  Ban,
-  ChevronRight,
-  CircleCheck,
-  CircleX,
-  Copy,
-  Download,
-  EllipsisVertical,
-  File,
-  FileSymlink,
-  Fingerprint,
-  Folder,
-  FolderPlus,
-  HardDrive,
-  Pencil,
-  RefreshCw,
-  Search,
-  Trash2,
-  Upload,
-  X,
-} from '@lucide/vue'
-import { computed, nextTick, onMounted, ref, shallowRef, useTemplateRef } from 'vue'
 import { api, errorMessage, type FileEntry, type FileHashes, type FileList, type VM } from '@/api'
 import {
   AlertDialog,
@@ -49,10 +24,37 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatBytes, formatDateTime } from '@/lib/format'
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpFromLine,
+  Ban,
+  ChevronRight,
+  CircleCheck,
+  CircleX,
+  Copy,
+  Download,
+  EllipsisVertical,
+  File,
+  FileLock,
+  FileSymlink,
+  Fingerprint,
+  Folder,
+  FolderPlus,
+  HardDrive,
+  Pencil,
+  RefreshCw,
+  Search,
+  Trash2,
+  Upload,
+  X,
+} from '@lucide/vue'
+import { computed, nextTick, onMounted, ref, shallowRef, useTemplateRef } from 'vue'
 
 const props = defineProps<{ vm: VM }>()
 
@@ -234,6 +236,35 @@ async function remove() {
   }
 }
 
+// Encrypted zip downloads: the password goes in a POST, which returns a
+// one-time link the browser then downloads like any other.
+const zipping = shallowRef<FileEntry | null>(null)
+const zipPassword = ref('')
+const zipError = ref<string>()
+const zipBusy = ref(false)
+function askZip(e: FileEntry) {
+  zipping.value = e
+  zipPassword.value = 'infected'
+  zipError.value = undefined
+}
+async function downloadZip() {
+  const e = zipping.value
+  if (!e || !zipPassword.value) return
+  zipBusy.value = true
+  try {
+    const { url } = await api.prepareZip(props.vm.id, e.path, zipPassword.value)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = ''
+    a.click()
+    zipping.value = null
+  } catch (err) {
+    zipError.value = errorMessage(err)
+  } finally {
+    zipBusy.value = false
+  }
+}
+
 // Checksums.
 const hashing = shallowRef<FileEntry | null>(null)
 const hashes = ref<FileHashes>()
@@ -252,10 +283,10 @@ async function showHashes(e: FileEntry) {
 const hashRows = computed(() =>
   hashes.value
     ? ([
-        ['MD5', hashes.value.md5],
-        ['SHA-1', hashes.value.sha1],
-        ['SHA-256', hashes.value.sha256],
-      ] as const)
+      ['MD5', hashes.value.md5],
+      ['SHA-1', hashes.value.sha1],
+      ['SHA-256', hashes.value.sha256],
+    ] as const)
     : [],
 )
 
@@ -388,53 +419,22 @@ function clearUploads() {
 </script>
 
 <template>
-  <div
-    class="relative flex flex-col gap-3"
-    @dragover="onDragOver"
-    @dragleave.self="dragging = false"
-    @drop.prevent="onDrop"
-  >
+  <div class="relative flex flex-col gap-3" @dragover="onDragOver" @dragleave.self="dragging = false" @drop.prevent="onDrop">
     <div class="flex flex-wrap items-center gap-2">
-      <Button
-        variant="outline"
-        size="icon-sm"
-        title="Up"
-        :disabled="!list?.parent || loading"
-        @click="list?.parent && open(list.parent)"
-      >
+      <Button variant="outline" size="icon-sm" title="Up" :disabled="!list?.parent || loading" @click="list?.parent && open(list.parent)">
         <ArrowUp />
       </Button>
       <form v-if="editingPath" class="min-w-48 flex-1" @submit.prevent="goToPath">
-        <Input
-          ref="pathField"
-          v-model="pathInput"
-          class="h-8 font-mono text-xs"
-          @keydown.esc="editingPath = false"
-          @blur="editingPath = false"
-        />
+        <Input ref="pathField" v-model="pathInput" class="h-8 font-mono text-xs" @keydown.esc="editingPath = false" @blur="editingPath = false" />
       </form>
-      <nav
-        v-else
-        class="bg-background flex h-8 min-w-48 flex-1 items-center overflow-x-auto rounded-md border px-1 text-sm"
-        aria-label="Path"
-      >
+      <nav v-else class="bg-background flex h-8 min-w-48 flex-1 items-center overflow-x-auto rounded-md border px-1 text-sm" aria-label="Path">
         <template v-for="(c, i) in crumbs" :key="c.path">
           <ChevronRight v-if="i > 0 && !(i === 1 && !isWindows)" class="text-muted-foreground size-3.5 shrink-0" />
-          <button
-            type="button"
-            class="hover:bg-accent shrink-0 rounded px-1.5 py-0.5 whitespace-nowrap"
-            :class="{ 'font-medium': i === crumbs.length - 1 }"
-            @click="open(c.path)"
-          >
+          <button type="button" class="hover:bg-accent shrink-0 rounded px-1.5 py-0.5 whitespace-nowrap" :class="{ 'font-medium': i === crumbs.length - 1 }" @click="open(c.path)">
             {{ c.label }}
           </button>
         </template>
-        <button
-          type="button"
-          class="text-muted-foreground hover:text-foreground ml-auto shrink-0 p-1"
-          title="Type a path"
-          @click="editPath"
-        >
+        <button type="button" class="text-muted-foreground hover:text-foreground ml-auto shrink-0 p-1" title="Type a path" @click="editPath">
           <Pencil class="size-3.5" />
         </button>
       </nav>
@@ -484,11 +484,7 @@ function clearUploads() {
           <Ban class="size-3.5" /> Cancelled
         </span>
         <Progress v-else :model-value="u.progress" class="h-1.5" />
-        <span
-          class="text-right tabular-nums"
-          :class="u.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'"
-          :title="u.error"
-        >
+        <span class="text-right tabular-nums" :class="u.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'" :title="u.error">
           {{
             u.state === 'failed' || u.state === 'cancelled'
               ? ''
@@ -499,14 +495,7 @@ function clearUploads() {
                   : `${Math.floor(u.progress)}%`
           }}
         </span>
-        <Button
-          v-if="u.state === 'queued' || u.state === 'uploading'"
-          variant="ghost"
-          size="icon-sm"
-          class="size-6"
-          title="Cancel upload"
-          @click="cancelUpload(u)"
-        >
+        <Button v-if="u.state === 'queued' || u.state === 'uploading'" variant="ghost" size="icon-sm" class="size-6" title="Cancel upload" @click="cancelUpload(u)">
           <X />
         </Button>
         <span v-else />
@@ -531,12 +520,7 @@ function clearUploads() {
         <TableBody>
           <TableRow v-for="e in visible" :key="e.path">
             <TableCell class="max-w-md">
-              <button
-                v-if="e.dir"
-                type="button"
-                class="flex max-w-full cursor-pointer items-center gap-2 font-medium hover:underline"
-                @click="open(e.path)"
-              >
+              <button v-if="e.dir" type="button" class="flex max-w-full cursor-pointer items-center gap-2 font-medium hover:underline" @click="open(e.path)">
                 <component :is="entryIcon(e)" class="size-4 shrink-0 text-sky-600 dark:text-sky-400" />
                 <span class="truncate">{{ e.name }}</span>
               </button>
@@ -549,29 +533,34 @@ function clearUploads() {
             <TableCell class="text-muted-foreground">{{ formatDateTime(e.modTime) }}</TableCell>
             <TableCell v-if="!isWindows" class="text-muted-foreground font-mono">{{ e.mode }}</TableCell>
             <TableCell class="text-right whitespace-nowrap">
-              <Button
-                v-if="!atDriveList"
-                variant="ghost"
-                size="icon-sm"
-                as="a"
-                :href="downloadUrl(e)"
-                download
-                :title="e.dir ? 'Download as zip' : 'Download'"
-              >
+              <Button v-if="!atDriveList" variant="ghost" size="icon-sm" as="a" :href="downloadUrl(e)" download :title="e.dir ? 'Download as zip' : 'Download'">
                 <Download />
               </Button>
               <DropdownMenu v-if="!atDriveList">
                 <DropdownMenuTrigger as-child>
-                  <Button variant="ghost" size="icon-sm" title="More"><EllipsisVertical /></Button>
+                  <Button variant="ghost" size="icon-sm" title="More">
+                    <EllipsisVertical />
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" class="w-44">
                   <DropdownMenuItem as-child>
-                    <a :href="downloadUrl(e)" download><Download /> {{ e.dir ? 'Download as zip' : 'Download' }}</a>
+                    <a :href="downloadUrl(e)" download>
+                      <Download /> {{ e.dir ? 'Download as zip' : 'Download' }}
+                    </a>
                   </DropdownMenuItem>
-                  <DropdownMenuItem v-if="!e.dir" @select="showHashes(e)"><Fingerprint /> Checksums</DropdownMenuItem>
-                  <DropdownMenuItem @select="copy(e.path)"><Copy /> Copy path</DropdownMenuItem>
+                  <DropdownMenuItem @select="askZip(e)">
+                    <FileLock /> Download encrypted zip…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem v-if="!e.dir" @select="showHashes(e)">
+                    <Fingerprint /> Checksums
+                  </DropdownMenuItem>
+                  <DropdownMenuItem @select="copy(e.path)">
+                    <Copy /> Copy path
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" @select="askDelete(e)"><Trash2 /> Delete</DropdownMenuItem>
+                  <DropdownMenuItem variant="destructive" @select="askDelete(e)">
+                    <Trash2 /> Delete
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </TableCell>
@@ -586,10 +575,7 @@ function clearUploads() {
       {{ summary }}<template v-if="!atDriveList"> · drop files here to upload them</template>
     </p>
 
-    <div
-      v-if="dragging"
-      class="border-primary bg-background/80 pointer-events-none absolute inset-0 flex items-center justify-center rounded-md border-2 border-dashed"
-    >
+    <div v-if="dragging" class="border-primary bg-background/80 pointer-events-none absolute inset-0 flex items-center justify-center rounded-md border-2 border-dashed">
       <p class="flex items-center gap-2 text-sm font-medium">
         <ArrowUpFromLine class="size-4" /> Drop to upload to {{ list?.path }}
       </p>
@@ -625,7 +611,9 @@ function clearUploads() {
         <p v-if="deleteError" class="text-destructive text-sm">{{ deleteError }}</p>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <Button variant="destructive" :disabled="deleteBusy" @click="remove"><Trash2 /> Delete</Button>
+          <Button variant="destructive" :disabled="deleteBusy" @click="remove">
+            <Trash2 /> Delete
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
@@ -637,7 +625,7 @@ function clearUploads() {
             {{ conflicts.length === 1 ? `${conflicts[0]!.name} already exists` : `${conflicts.length} files already exist` }}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            <template v-if="conflicts.length > 1">{{ conflicts.map((f) => f.name).join(', ') }}. </template>
+            <template v-if="conflicts.length > 1">{{conflicts.map((f) => f.name).join(', ')}}. </template>
             Replace {{ conflicts.length === 1 ? 'it' : 'them' }} with the
             {{ conflicts.length === 1 ? 'file' : 'files' }} you're uploading?
           </AlertDialogDescription>
@@ -651,6 +639,30 @@ function clearUploads() {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+    <Dialog :open="!!zipping" @update:open="(o) => !o && (zipping = null)">
+      <DialogContent class="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Download {{ zipping?.name }} as an encrypted zip</DialogTitle>
+          <DialogDescription>
+            The {{ zipping?.dir ? 'folder' : 'file' }} is zipped and encrypted as it downloads. ZipCrypto
+            encryption opens anywhere, Windows Explorer included, but is weak: treat it as a deterrent, not
+            real protection.
+          </DialogDescription>
+        </DialogHeader>
+        <form id="zip-password" class="flex flex-col gap-1.5" @submit.prevent="downloadZip">
+          <Label for="zip-password-input">Password</Label>
+          <Input id="zip-password-input" v-model="zipPassword" autocomplete="off" autofocus />
+        </form>
+        <p v-if="zipError" class="text-destructive text-sm">{{ zipError }}</p>
+        <DialogFooter>
+          <Button variant="outline" @click="zipping = null">Cancel</Button>
+          <Button type="submit" form="zip-password" :disabled="!zipPassword || zipBusy">
+            <Download /> Download
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <Dialog :open="!!hashing" @update:open="(o) => !o && (hashing = null)">
       <DialogContent class="sm:max-w-xl">

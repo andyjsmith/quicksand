@@ -2,6 +2,8 @@ package main
 
 import (
 	"crypto/ed25519"
+	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"quicksand/internal/agent"
@@ -17,8 +20,10 @@ import (
 )
 
 // startServer runs a real agent behind a stand-in for the Quicksand
-// server's shell endpoint, and returns a client signed in to it.
-func startServer(t *testing.T) *client {
+// server's VM list, file and stream endpoints (for one VM, "vm1", whose
+// files directory is the returned temporary directory), and returns a
+// client signed in to it.
+func startServer(t *testing.T) (*client, string) {
 	t.Helper()
 	key, err := agentproto.GenerateKey()
 	if err != nil {
@@ -39,12 +44,83 @@ func startServer(t *testing.T) *client {
 		t.Fatal(err)
 	}
 
+	guestDir := t.TempDir()
+	var zipMu sync.Mutex
+	var zipReq struct{ Path, Password string }
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ck, err := r.Cookie("quicksand_session"); err != nil || ck.Value != "s3cret" {
 			http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
 			return
 		}
 		q := r.URL.Query()
+		agentHost := strings.TrimPrefix(agentSrv.URL, "https://")
+		ref := agentclient.FileRef{Base: guestDir, Path: q.Get("path")}
+		fail := func(err error) {
+			status := http.StatusBadGateway
+			var ae *agentclient.Error
+			if errors.As(err, &ae) {
+				status = ae.Status
+			}
+			b, _ := json.Marshal(map[string]string{"error": err.Error()})
+			http.Error(w, string(b), status)
+		}
+		relay := func(resp *http.Response, err error) {
+			if err != nil {
+				fail(err)
+				return
+			}
+			defer resp.Body.Close()
+			w.Header().Set("Content-Length", resp.Header.Get("Content-Length"))
+			io.Copy(w, resp.Body)
+		}
+		switch {
+		case r.URL.Path == "/api/vms":
+			w.Write([]byte(`[{"id":"x","name":"vm1","state":"ready","agent":{"status":"connected","os":"linux"}}]`))
+			return
+		case strings.HasSuffix(r.URL.Path, "/exec"):
+			var req agentproto.ExecRequest
+			json.NewDecoder(r.Body).Decode(&req)
+			res, err := ac.Exec(r.Context(), agentHost, req)
+			if err != nil {
+				fail(err)
+				return
+			}
+			json.NewEncoder(w).Encode(res)
+			return
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/files"):
+			list, err := ac.ListFiles(r.Context(), agentHost, ref)
+			if err != nil {
+				fail(err)
+				return
+			}
+			json.NewEncoder(w).Encode(list)
+			return
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/files/content"):
+			relay(ac.Download(r.Context(), agentHost, ref))
+			return
+		case r.Method == "PUT" && strings.HasSuffix(r.URL.Path, "/files/content"):
+			e, err := ac.Upload(r.Context(), agentHost, ref, r.Body, r.ContentLength, q.Get("overwrite") == "1")
+			if err != nil {
+				fail(err)
+				return
+			}
+			json.NewEncoder(w).Encode(e)
+			return
+		case strings.HasSuffix(r.URL.Path, "/files/zip"):
+			var req struct{ Path, Password string }
+			json.NewDecoder(r.Body).Decode(&req)
+			zipMu.Lock()
+			zipReq = req
+			zipMu.Unlock()
+			w.Write([]byte(`{"url":"/api/downloads/token"}`))
+			return
+		case r.URL.Path == "/api/downloads/token":
+			zipMu.Lock()
+			req := zipReq
+			zipMu.Unlock()
+			relay(ac.DownloadZip(r.Context(), agentHost, agentclient.FileRef{Base: guestDir, Path: req.Path}, req.Password))
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/connect") {
 			conn, err := ac.Connect(r.Context(), strings.TrimPrefix(agentSrv.URL, "https://"), q.Get("addr"))
 			if err != nil {
@@ -75,14 +151,23 @@ func startServer(t *testing.T) *client {
 		agentproto.Join(client, conn)
 	}))
 	t.Cleanup(srv.Close)
-	return newClient(settings{Server: srv.URL, Session: "s3cret", Fingerprint: certFingerprint(srv.Certificate().Raw)})
+	s := settings{Server: srv.URL, Session: "s3cret", Fingerprint: certFingerprint(srv.Certificate().Raw)}
+	// Commands read the settings from the user's config directory.
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("AppData", home)
+	t.Setenv("HOME", home)
+	if err := saveSettings(s); err != nil {
+		t.Fatal(err)
+	}
+	return newClient(s), guestDir
 }
 
 func TestShellStream(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses a Unix shell")
 	}
-	c := startServer(t)
+	c, _ := startServer(t)
 
 	// Swap stdio for pipes for runShell.
 	stdin, stdinW, _ := os.Pipe()

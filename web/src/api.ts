@@ -257,6 +257,12 @@ export const api = {
   },
   /** A URL that downloads a guest file (or a directory as a zip). */
   downloadUrl: (id: string, path: string) => `${vmPath(id)}/files/content?${new URLSearchParams({ path })}`,
+  /**
+   * Prepares downloading a file or folder as a password-protected
+   * (ZipCrypto) zip, returning a one-time link that works for a minute.
+   */
+  prepareZip: (id: string, path: string, password: string) =>
+    request<{ url: string }>('POST', `${vmPath(id)}/files/zip`, { path, password }),
   upload: (
     id: string,
     path: string,
