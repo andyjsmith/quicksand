@@ -3,6 +3,8 @@ package agent
 import (
 	"errors"
 	"os"
+	"slices"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -69,7 +71,51 @@ func listProcesses() ([]agentproto.Process, error) {
 	if !errors.Is(err, windows.ERROR_NO_MORE_FILES) {
 		return nil, err
 	}
+	services := runningServices()
+	for i := range out {
+		out[i].Services = services[out[i].PID]
+	}
 	return out, nil
+}
+
+// runningServices maps process IDs to the services running in them, from
+// the service control manager; nil if it can't be read.
+func runningServices() map[int][]agentproto.ProcessService {
+	m, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_ENUMERATE_SERVICE)
+	if err != nil {
+		return nil
+	}
+	defer windows.CloseServiceHandle(m)
+	out := map[int][]agentproto.ProcessService{}
+	buf := make([]byte, 64<<10)
+	var resume uint32
+	for {
+		var needed, count uint32
+		err := windows.EnumServicesStatusEx(m, windows.SC_ENUM_PROCESS_INFO, windows.SERVICE_WIN32, windows.SERVICE_ACTIVE,
+			&buf[0], uint32(len(buf)), &needed, &count, &resume, nil)
+		if err != nil && !errors.Is(err, windows.ERROR_MORE_DATA) {
+			return out
+		}
+		// The names point into buf: copy them before it's reused.
+		for _, e := range unsafe.Slice((*windows.ENUM_SERVICE_STATUS_PROCESS)(unsafe.Pointer(&buf[0])), count) {
+			if pid := int(e.ServiceStatusProcess.ProcessId); pid != 0 {
+				out[pid] = append(out[pid], agentproto.ProcessService{
+					Name:        windows.UTF16PtrToString(e.ServiceName),
+					DisplayName: windows.UTF16PtrToString(e.DisplayName),
+				})
+			}
+		}
+		if err == nil {
+			break
+		}
+		if int(needed) > len(buf) {
+			buf = make([]byte, needed)
+		}
+	}
+	for _, svcs := range out {
+		slices.SortFunc(svcs, func(a, b agentproto.ProcessService) int { return strings.Compare(a.Name, b.Name) })
+	}
+	return out
 }
 
 // describeProcess fills in what needs a process handle; protected

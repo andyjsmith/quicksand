@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowUp, RefreshCw, Search, Skull, X } from '@lucide/vue'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ListTree, List as ListIcon, RefreshCw, Search, Skull, X } from '@lucide/vue'
+import { useLocalStorage } from '@vueuse/core'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { api, errorMessage, type GuestProcess, type ProcessList, type VM } from '@/api'
 import {
@@ -17,6 +18,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { formatBytes, formatCpuTime, formatDateTime } from '@/lib/format'
 
 const props = defineProps<{ vm: VM }>()
@@ -70,26 +72,94 @@ onMounted(() => {
 })
 onBeforeUnmount(() => clearInterval(timer))
 
-const visible = computed(() => {
-  const q = filter.value.trim().toLowerCase()
-  const filtered = q
-    ? rows.value.filter(
-        (p) =>
-          String(p.pid) === q ||
-          p.name.toLowerCase().includes(q) ||
-          p.command?.toLowerCase().includes(q) ||
-          p.user?.toLowerCase().includes(q),
-      )
-    : rows.value
+const view = useLocalStorage<'list' | 'tree'>('quicksand.processView', 'list')
+
+const matches = (p: Row, q: string) =>
+  String(p.pid) === q ||
+  p.name.toLowerCase().includes(q) ||
+  !!p.command?.toLowerCase().includes(q) ||
+  !!p.user?.toLowerCase().includes(q) ||
+  !!p.services?.some((s) => s.name.toLowerCase().includes(q) || s.displayName?.toLowerCase().includes(q))
+
+function compare(a: Row, b: Row) {
   const dir = sortDesc.value ? -1 : 1
-  const key = sortKey.value
-  return [...filtered].sort((a, b) => {
-    const av = a[key] ?? -1
-    const bv = b[key] ?? -1
-    if (typeof av === 'string' || typeof bv === 'string') return String(av).localeCompare(String(bv)) * dir
-    return (av - bv) * dir
-  })
+  const av = a[sortKey.value] ?? -1
+  const bv = b[sortKey.value] ?? -1
+  if (typeof av === 'string' || typeof bv === 'string') return String(av).localeCompare(String(bv)) * dir
+  return (av - bv) * dir
+}
+
+interface Line {
+  p: Row
+  depth: number
+  hasChildren: boolean
+  /** Shown only as the ancestor of a filter match. */
+  context: boolean
+}
+
+// Processes collapsed in the tree, by PID.
+const collapsed = ref(new Set<number>())
+function toggleCollapsed(pid: number) {
+  const next = new Set(collapsed.value)
+  if (!next.delete(pid)) next.add(pid)
+  collapsed.value = next
+}
+
+const visible = computed<Line[]>(() => {
+  const q = filter.value.trim().toLowerCase()
+  if (view.value === 'list') {
+    return rows.value
+      .filter((p) => !q || matches(p, q))
+      .sort(compare)
+      .map((p) => ({ p, depth: 0, hasChildren: false, context: false }))
+  }
+  // A parent must have started before its child: Windows reuses PIDs, so
+  // a recorded parent PID can belong to a newer, unrelated process.
+  const byPid = new Map(rows.value.map((p) => [p.pid, p]))
+  const parentOf = (p: Row) => {
+    const parent = byPid.get(p.ppid)
+    if (!parent || parent.pid === p.pid) return undefined
+    if (parent.started && p.started && parent.started > p.started) return undefined
+    return parent
+  }
+  const children = new Map<number, Row[]>()
+  const roots: Row[] = []
+  for (const p of rows.value) {
+    const parent = parentOf(p)
+    if (parent) children.set(parent.pid, [...(children.get(parent.pid) ?? []), p])
+    else roots.push(p)
+  }
+  // With a filter, show matches and the processes leading to them.
+  let shown: Set<number> | undefined
+  if (q) {
+    shown = new Set()
+    for (const p of rows.value) {
+      if (!matches(p, q)) continue
+      for (let cur: Row | undefined = p; cur && !shown.has(cur.pid); cur = parentOf(cur)) shown.add(cur.pid)
+    }
+  }
+  const out: Line[] = []
+  const seen = new Set<number>()
+  const walk = (list: Row[], depth: number) => {
+    for (const p of [...list].sort(compare)) {
+      if (seen.has(p.pid) || (shown && !shown.has(p.pid))) continue
+      seen.add(p.pid)
+      const kids = children.get(p.pid) ?? []
+      out.push({ p, depth, hasChildren: kids.length > 0, context: !!q && !matches(p, q) })
+      // A filter opens the branches it found matches in.
+      if (!collapsed.value.has(p.pid) || q) walk(kids, depth + 1)
+    }
+  }
+  walk(roots, 0)
+  return out
 })
+
+const serviceSummary = (p: Row) => {
+  const names = p.services?.map((s) => s.name) ?? []
+  return names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3}` : names.join(', ')
+}
+const serviceTitle = (p: Row) =>
+  p.services?.map((s) => (s.displayName && s.displayName !== s.name ? `${s.name} — ${s.displayName}` : s.name)).join('\n')
 
 function sortBy(key: SortKey) {
   if (sortKey.value === key) sortDesc.value = !sortDesc.value
@@ -138,8 +208,19 @@ const columns: { key: SortKey; label: string; class?: string }[] = [
     <div class="flex flex-wrap items-center gap-2">
       <div class="relative min-w-48 flex-1">
         <Search class="text-muted-foreground absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
-        <Input v-model="filter" placeholder="Filter by name, PID, user or command" class="pl-8" />
+        <Input v-model="filter" placeholder="Filter by name, PID, user, command or service" class="pl-8" />
       </div>
+      <!-- Clicking the selected item would deselect it: keep one chosen. -->
+      <ToggleGroup
+        :model-value="view"
+        type="single"
+        variant="outline"
+        size="sm"
+        @update:model-value="(v) => v && (view = v as 'list' | 'tree')"
+      >
+        <ToggleGroupItem value="list" title="List"><ListIcon /> List</ToggleGroupItem>
+        <ToggleGroupItem value="tree" title="Tree"><ListTree /> Tree</ToggleGroupItem>
+      </ToggleGroup>
       <div class="flex items-center gap-2">
         <Switch id="proc-live" v-model="live" />
         <Label for="proc-live" class="text-xs">Live</Label>
@@ -169,10 +250,30 @@ const columns: { key: SortKey; label: string; class?: string }[] = [
           </TableRow>
         </TableHeader>
         <TableBody>
-          <TableRow v-for="p in visible" :key="p.pid">
+          <TableRow v-for="{ p, depth, hasChildren, context } in visible" :key="p.pid" :class="{ 'opacity-50': context }">
             <TableCell class="font-mono tabular-nums">{{ p.pid }}</TableCell>
-            <TableCell class="max-w-48 truncate font-medium" :title="`Parent PID ${p.ppid}${p.started ? ' · started ' + formatDateTime(p.started) : ''}${p.threads ? ' · ' + p.threads + ' threads' : ''} · CPU time ${formatCpuTime(p.cpuTimeMs)}`">
-              {{ p.name }}
+            <TableCell class="max-w-md">
+              <div class="flex min-w-0 items-center gap-1" :style="{ paddingLeft: `${depth * 14}px` }">
+                <button
+                  v-if="view === 'tree' && hasChildren && !filter.trim()"
+                  type="button"
+                  class="text-muted-foreground hover:text-foreground -ml-1 shrink-0"
+                  :title="collapsed.has(p.pid) ? 'Expand' : 'Collapse'"
+                  @click="toggleCollapsed(p.pid)"
+                >
+                  <component :is="collapsed.has(p.pid) ? ChevronRight : ChevronDown" class="size-3.5" />
+                </button>
+                <span v-else-if="view === 'tree'" class="inline-block w-2.5 shrink-0" />
+                <span
+                  class="truncate font-medium"
+                  :title="`Parent PID ${p.ppid}${p.started ? ' · started ' + formatDateTime(p.started) : ''}${p.threads ? ' · ' + p.threads + ' threads' : ''} · CPU time ${formatCpuTime(p.cpuTimeMs)}`"
+                >
+                  {{ p.name }}
+                </span>
+                <span v-if="p.services?.length" class="text-muted-foreground truncate text-[11px]" :title="serviceTitle(p)">
+                  {{ serviceSummary(p) }}
+                </span>
+              </div>
             </TableCell>
             <TableCell class="text-muted-foreground max-w-40 truncate">{{ p.user }}</TableCell>
             <TableCell class="text-right tabular-nums">{{ p.cpu === null ? '' : p.cpu.toFixed(1) + '%' }}</TableCell>

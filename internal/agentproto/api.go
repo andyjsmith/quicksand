@@ -90,6 +90,14 @@ type Process struct {
 	CPUTimeMs int64     `json:"cpuTimeMs"`
 	Threads   int       `json:"threads,omitempty"`
 	Started   time.Time `json:"started,omitzero"`
+	// Services are the Windows services the process hosts (several for a
+	// shared svchost.exe), or its systemd service unit on Linux.
+	Services []ProcessService `json:"services,omitempty"`
+}
+
+type ProcessService struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName,omitempty"`
 }
 
 // KillRequest is the body of POST /v1/processes/{pid}/kill. Force kills

@@ -4,6 +4,7 @@ import { CircleAlert, PanelLeftOpen, Play, RefreshCw, Unplug, Volume2 } from '@l
 import { computed, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '@/api'
+import ConsoleDropUpload from '@/components/console/ConsoleDropUpload.vue'
 import ConsoleSidebar from '@/components/console/ConsoleSidebar.vue'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -225,6 +226,8 @@ watch(isFullscreen, (full) => {
     >
       <Volume2 class="size-3.5" /> Your browser blocked the guest's audio. Click to enable.
     </button>
+
+    <ConsoleDropUpload :vm="vm ?? null" @done="ctl.focus()" />
 
     <ConsoleSidebar
       v-model:open="panelOpen"

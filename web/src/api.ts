@@ -146,6 +146,8 @@ export interface GuestProcess {
   cpuTimeMs: number
   threads?: number
   started?: string
+  /** Windows services it hosts (e.g. in svchost.exe), or its systemd unit. */
+  services?: { name: string; displayName?: string }[]
 }
 
 export interface ConnectionList {

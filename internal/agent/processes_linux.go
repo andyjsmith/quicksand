@@ -68,6 +68,9 @@ func readProcess(pid int, boot time.Time, page uint64, users map[string]string) 
 	if cmdline, err := os.ReadFile(dir + "cmdline"); err == nil {
 		p.Command = strings.TrimSpace(string(bytes.ReplaceAll(cmdline, []byte{0}, []byte{' '})))
 	}
+	if unit := systemdService(dir); unit != "" {
+		p.Services = []agentproto.ProcessService{{Name: unit}}
+	}
 	if status, err := os.ReadFile(dir + "status"); err == nil {
 		sc := bufio.NewScanner(bytes.NewReader(status))
 		for sc.Scan() {
@@ -80,6 +83,24 @@ func readProcess(pid int, boot time.Time, page uint64, users map[string]string) 
 		}
 	}
 	return p, true
+}
+
+// systemdService is the systemd service unit a process runs in, from its
+// cgroup (e.g. "0::/system.slice/ssh.service"); "" if none.
+func systemdService(dir string) string {
+	data, err := os.ReadFile(dir + "cgroup")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		// The unified hierarchy's line is "0::/path".
+		if path, ok := strings.CutPrefix(line, "0::"); ok {
+			if unit := path[strings.LastIndexByte(path, '/')+1:]; strings.HasSuffix(unit, ".service") {
+				return unit
+			}
+		}
+	}
+	return ""
 }
 
 func userName(uid string, cache map[string]string) string {

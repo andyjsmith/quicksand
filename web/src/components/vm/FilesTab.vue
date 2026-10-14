@@ -25,18 +25,16 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
+import UploadList from '@/components/UploadList.vue'
+import { filesFromDrop, useUploadQueue } from '@/composables/useUploadQueue'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatBytes, formatDateTime } from '@/lib/format'
 import {
   ArrowDown,
   ArrowUp,
   ArrowUpFromLine,
-  Ban,
   ChevronRight,
-  CircleCheck,
-  CircleX,
   Copy,
   Download,
   EllipsisVertical,
@@ -291,14 +289,10 @@ const hashRows = computed(() =>
 )
 
 // Uploads, one at a time, into the directory shown when they were started.
-interface UploadItem {
-  name: string
-  size: number
-  progress: number
-  state: 'queued' | 'uploading' | 'done' | 'failed' | 'cancelled'
-  error?: string
-}
-const uploads = ref<UploadItem[]>([])
+const uploadQueue = useUploadQueue(
+  () => props.vm.id,
+  (dir) => list.value?.path === dir && refresh(),
+)
 const fileInput = useTemplateRef('fileInput')
 const pendingFiles = shallowRef<File[]>([])
 const conflicts = computed(() => {
@@ -306,10 +300,6 @@ const conflicts = computed(() => {
   return pendingFiles.value.filter((f) => existing.has(f.name))
 })
 const dragging = ref(false)
-let uploading = false
-const queue: { file: File; dir: string; overwrite: boolean; item: UploadItem }[] = []
-// The upload in progress (one at a time), to cancel it.
-let current: { item: UploadItem; controller: AbortController } | undefined
 
 function chooseFiles() {
   fileInput.value?.click()
@@ -324,17 +314,7 @@ function onFileInput(ev: Event) {
 function onDrop(ev: DragEvent) {
   dragging.value = false
   if (!list.value || atDriveList.value || !ev.dataTransfer) return
-  const files: File[] = []
-  let folders = 0
-  for (const item of ev.dataTransfer.items) {
-    if (item.kind !== 'file') continue
-    if (item.webkitGetAsEntry()?.isDirectory) {
-      folders++
-      continue
-    }
-    const f = item.getAsFile()
-    if (f) files.push(f)
-  }
+  const { files, folders } = filesFromDrop(ev.dataTransfer)
   if (folders) error.value = "Folders can't be uploaded; upload their files, or a zip of them."
   startUploads(files)
 }
@@ -363,58 +343,11 @@ function confirmUploads(existing: 'replace' | 'skip' | 'cancel') {
   const clashing = new Set(conflicts.value)
   pendingFiles.value = []
   if (existing === 'cancel' || !list.value) return
-  for (const file of files) {
-    if (existing === 'skip' && clashing.has(file)) continue
-    const item: UploadItem = { name: file.name, size: file.size, progress: 0, state: 'queued' }
-    uploads.value.push(item)
-    queue.push({ file, dir: list.value.path, overwrite: clashing.has(file), item: uploads.value.at(-1)! })
-  }
-  runQueue()
-}
-
-async function runQueue() {
-  if (uploading) return
-  uploading = true
-  while (queue.length) {
-    const { file, dir, overwrite, item } = queue.shift()!
-    item.state = 'uploading'
-    const controller = new AbortController()
-    current = { item, controller }
-    try {
-      await api.upload(props.vm.id, join(dir, file.name), file, overwrite, (f) => (item.progress = f * 100), controller.signal)
-      item.state = 'done'
-      item.progress = 100
-      if (list.value?.path === dir) refresh()
-    } catch (e) {
-      if (controller.signal.aborted) item.state = 'cancelled'
-      else {
-        item.state = 'failed'
-        item.error = errorMessage(e)
-      }
-    }
-    current = undefined
-  }
-  uploading = false
-}
-
-function cancelUpload(item: UploadItem) {
-  const i = queue.findIndex((q) => q.item === item)
-  if (i >= 0) {
-    queue.splice(i, 1)
-    item.state = 'cancelled'
-  } else if (current?.item === item) {
-    current.controller.abort()
-  }
-}
-
-function cancelAllUploads() {
-  for (const q of queue.splice(0)) q.item.state = 'cancelled'
-  current?.controller.abort()
-}
-
-const activeUploads = computed(() => uploads.value.filter((u) => u.state === 'queued' || u.state === 'uploading').length)
-function clearUploads() {
-  uploads.value = uploads.value.filter((u) => u.state === 'queued' || u.state === 'uploading')
+  uploadQueue.enqueue(
+    files.filter((f) => existing !== 'skip' || !clashing.has(f)),
+    list.value.path,
+    (f) => clashing.has(f),
+  )
 }
 </script>
 
@@ -460,48 +393,7 @@ function clearUploads() {
       </button>
     </p>
 
-    <div v-if="uploads.length" class="flex flex-col gap-1.5 rounded-md border p-3 text-xs">
-      <div class="flex items-center gap-2">
-        <span class="font-medium">
-          {{ activeUploads ? `Uploading ${activeUploads} file${activeUploads === 1 ? '' : 's'}` : 'Uploads' }}
-        </span>
-        <div class="ml-auto flex gap-1">
-          <Button v-if="activeUploads > 1" variant="ghost" size="sm" class="h-6" @click="cancelAllUploads">Cancel all</Button>
-          <Button v-if="uploads.length > activeUploads" variant="ghost" size="sm" class="h-6" @click="clearUploads">
-            Clear finished
-          </Button>
-        </div>
-      </div>
-      <div v-for="(u, i) in uploads" :key="i" class="grid grid-cols-[minmax(0,1fr)_8rem_5rem_1.5rem] items-center gap-3">
-        <span class="truncate" :title="u.name">{{ u.name }}</span>
-        <span v-if="u.state === 'done'" class="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-          <CircleCheck class="size-3.5" /> Uploaded
-        </span>
-        <span v-else-if="u.state === 'failed'" class="text-destructive flex items-center gap-1">
-          <CircleX class="size-3.5" /> Failed
-        </span>
-        <span v-else-if="u.state === 'cancelled'" class="text-muted-foreground flex items-center gap-1">
-          <Ban class="size-3.5" /> Cancelled
-        </span>
-        <Progress v-else :model-value="u.progress" class="h-1.5" />
-        <span class="text-right tabular-nums" :class="u.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'" :title="u.error">
-          {{
-            u.state === 'failed' || u.state === 'cancelled'
-              ? ''
-              : u.state === 'done'
-                ? formatBytes(u.size)
-                : u.state === 'queued'
-                  ? 'Waiting'
-                  : `${Math.floor(u.progress)}%`
-          }}
-        </span>
-        <Button v-if="u.state === 'queued' || u.state === 'uploading'" variant="ghost" size="icon-sm" class="size-6" title="Cancel upload" @click="cancelUpload(u)">
-          <X />
-        </Button>
-        <span v-else />
-        <p v-if="u.error" class="text-destructive col-span-4 -mt-1">{{ u.error }}</p>
-      </div>
-    </div>
+    <UploadList :queue="uploadQueue" />
 
     <div class="overflow-x-auto rounded-md border">
       <Table class="text-xs">
