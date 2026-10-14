@@ -257,8 +257,20 @@ export const api = {
   },
   /** A URL that downloads a guest file (or a directory as a zip). */
   downloadUrl: (id: string, path: string) => `${vmPath(id)}/files/content?${new URLSearchParams({ path })}`,
-  upload: (id: string, path: string, file: Blob, overwrite: boolean, onProgress?: (fraction: number) => void) =>
-    upload(`${vmPath(id)}/files/content?${new URLSearchParams({ path, overwrite: overwrite ? '1' : '0' })}`, file, onProgress),
+  upload: (
+    id: string,
+    path: string,
+    file: Blob,
+    overwrite: boolean,
+    onProgress?: (fraction: number) => void,
+    signal?: AbortSignal,
+  ) =>
+    upload(
+      `${vmPath(id)}/files/content?${new URLSearchParams({ path, overwrite: overwrite ? '1' : '0' })}`,
+      file,
+      onProgress,
+      signal,
+    ),
 
   agentSettings: () => request<AgentSettings>('GET', '/api/admin/agent'),
   users: () => request<User[]>('GET', '/api/admin/users'),
@@ -269,10 +281,15 @@ export const api = {
   deleteUser: (id: number) => request<void>('DELETE', `/api/admin/users/${id}`),
 }
 
-/** PUTs a file with upload progress, which fetch can't report. */
-function upload(url: string, file: Blob, onProgress?: (fraction: number) => void): Promise<FileEntry> {
+/**
+ * PUTs a file with upload progress, which fetch can't report. Aborting
+ * signal cancels it; the guest keeps nothing of a cancelled upload.
+ */
+function upload(url: string, file: Blob, onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<FileEntry> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
+    if (signal?.aborted) return reject(new ApiError(0, 'Upload cancelled.'))
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true })
     xhr.open('PUT', url)
     xhr.setRequestHeader('Content-Type', 'application/octet-stream')
     xhr.upload.onprogress = (e) => {

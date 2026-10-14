@@ -8,7 +8,10 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpFromLine,
+  Ban,
   ChevronRight,
+  CircleCheck,
+  CircleX,
   Copy,
   Download,
   EllipsisVertical,
@@ -261,7 +264,7 @@ interface UploadItem {
   name: string
   size: number
   progress: number
-  state: 'queued' | 'uploading' | 'done' | 'failed'
+  state: 'queued' | 'uploading' | 'done' | 'failed' | 'cancelled'
   error?: string
 }
 const uploads = ref<UploadItem[]>([])
@@ -274,6 +277,8 @@ const conflicts = computed(() => {
 const dragging = ref(false)
 let uploading = false
 const queue: { file: File; dir: string; overwrite: boolean; item: UploadItem }[] = []
+// The upload in progress (one at a time), to cancel it.
+let current: { item: UploadItem; controller: AbortController } | undefined
 
 function chooseFiles() {
   fileInput.value?.click()
@@ -342,17 +347,38 @@ async function runQueue() {
   while (queue.length) {
     const { file, dir, overwrite, item } = queue.shift()!
     item.state = 'uploading'
+    const controller = new AbortController()
+    current = { item, controller }
     try {
-      await api.upload(props.vm.id, join(dir, file.name), file, overwrite, (f) => (item.progress = f * 100))
+      await api.upload(props.vm.id, join(dir, file.name), file, overwrite, (f) => (item.progress = f * 100), controller.signal)
       item.state = 'done'
       item.progress = 100
       if (list.value?.path === dir) refresh()
     } catch (e) {
-      item.state = 'failed'
-      item.error = errorMessage(e)
+      if (controller.signal.aborted) item.state = 'cancelled'
+      else {
+        item.state = 'failed'
+        item.error = errorMessage(e)
+      }
     }
+    current = undefined
   }
   uploading = false
+}
+
+function cancelUpload(item: UploadItem) {
+  const i = queue.findIndex((q) => q.item === item)
+  if (i >= 0) {
+    queue.splice(i, 1)
+    item.state = 'cancelled'
+  } else if (current?.item === item) {
+    current.controller.abort()
+  }
+}
+
+function cancelAllUploads() {
+  for (const q of queue.splice(0)) q.item.state = 'cancelled'
+  current?.controller.abort()
 }
 
 const activeUploads = computed(() => uploads.value.filter((u) => u.state === 'queued' || u.state === 'uploading').length)
@@ -439,21 +465,33 @@ function clearUploads() {
         <span class="font-medium">
           {{ activeUploads ? `Uploading ${activeUploads} file${activeUploads === 1 ? '' : 's'}` : 'Uploads' }}
         </span>
-        <Button v-if="uploads.length > activeUploads" variant="ghost" size="sm" class="ml-auto h-6" @click="clearUploads">
-          Clear finished
-        </Button>
+        <div class="ml-auto flex gap-1">
+          <Button v-if="activeUploads > 1" variant="ghost" size="sm" class="h-6" @click="cancelAllUploads">Cancel all</Button>
+          <Button v-if="uploads.length > activeUploads" variant="ghost" size="sm" class="h-6" @click="clearUploads">
+            Clear finished
+          </Button>
+        </div>
       </div>
-      <div v-for="(u, i) in uploads" :key="i" class="grid grid-cols-[minmax(0,1fr)_8rem_5rem] items-center gap-3">
+      <div v-for="(u, i) in uploads" :key="i" class="grid grid-cols-[minmax(0,1fr)_8rem_5rem_1.5rem] items-center gap-3">
         <span class="truncate" :title="u.name">{{ u.name }}</span>
-        <Progress :model-value="u.progress" class="h-1.5" />
+        <span v-if="u.state === 'done'" class="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+          <CircleCheck class="size-3.5" /> Uploaded
+        </span>
+        <span v-else-if="u.state === 'failed'" class="text-destructive flex items-center gap-1">
+          <CircleX class="size-3.5" /> Failed
+        </span>
+        <span v-else-if="u.state === 'cancelled'" class="text-muted-foreground flex items-center gap-1">
+          <Ban class="size-3.5" /> Cancelled
+        </span>
+        <Progress v-else :model-value="u.progress" class="h-1.5" />
         <span
           class="text-right tabular-nums"
           :class="u.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'"
           :title="u.error"
         >
           {{
-            u.state === 'failed'
-              ? 'Failed'
+            u.state === 'failed' || u.state === 'cancelled'
+              ? ''
               : u.state === 'done'
                 ? formatBytes(u.size)
                 : u.state === 'queued'
@@ -461,7 +499,18 @@ function clearUploads() {
                   : `${Math.floor(u.progress)}%`
           }}
         </span>
-        <p v-if="u.error" class="text-destructive col-span-3 -mt-1">{{ u.error }}</p>
+        <Button
+          v-if="u.state === 'queued' || u.state === 'uploading'"
+          variant="ghost"
+          size="icon-sm"
+          class="size-6"
+          title="Cancel upload"
+          @click="cancelUpload(u)"
+        >
+          <X />
+        </Button>
+        <span v-else />
+        <p v-if="u.error" class="text-destructive col-span-4 -mt-1">{{ u.error }}</p>
       </div>
     </div>
 
@@ -480,12 +529,12 @@ function clearUploads() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          <TableRow v-for="e in visible" :key="e.path" :class="{ 'cursor-pointer': e.dir }" @dblclick="e.dir && open(e.path)">
+          <TableRow v-for="e in visible" :key="e.path">
             <TableCell class="max-w-md">
               <button
                 v-if="e.dir"
                 type="button"
-                class="flex max-w-full items-center gap-2 font-medium hover:underline"
+                class="flex max-w-full cursor-pointer items-center gap-2 font-medium hover:underline"
                 @click="open(e.path)"
               >
                 <component :is="entryIcon(e)" class="size-4 shrink-0 text-sky-600 dark:text-sky-400" />
