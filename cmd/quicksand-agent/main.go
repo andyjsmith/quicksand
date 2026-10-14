@@ -25,6 +25,10 @@ func defaultConfigPath() string {
 }
 
 func main() {
+	// The agent runs itself in the console session to resize the display.
+	if len(os.Args) > 1 && os.Args[1] == "set-display" {
+		os.Exit(agent.RunDisplayHelper(os.Args[2:]))
+	}
 	configPath := flag.String("config", defaultConfigPath(), "path to the agent configuration file")
 	logPath := flag.String("log", "", "append logs to this file instead of standard error")
 	version := flag.Bool("version", false, "print the version and exit")

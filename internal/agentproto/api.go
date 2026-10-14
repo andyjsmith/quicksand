@@ -182,6 +182,27 @@ type ZipRequest struct {
 	Password string `json:"password"`
 }
 
+// DisplayRequest is the body of POST /v1/display, which changes the guest's
+// screen resolution (Windows guests): exactly with QXL and VirtIO GPU
+// drivers that take custom sizes, else to the closest mode on offer.
+type DisplayRequest struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+// DisplayResult is the resolution set, which may be adjusted from the one
+// requested (e.g. to a multiple of 8 wide).
+type DisplayResult struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+	// Adapter is the display driver used: "virtio-gpu", "qxl", or another
+	// driver's name.
+	Adapter string `json:"adapter"`
+	// Exact is false when the driver can't take custom sizes and the
+	// closest mode it offers was used instead.
+	Exact bool `json:"exact"`
+}
+
 // FileHashes is returned by GET /v1/files/hash.
 type FileHashes struct {
 	Path   string `json:"path"`

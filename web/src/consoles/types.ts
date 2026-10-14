@@ -72,6 +72,11 @@ export interface AudioSettings {
 export interface ConnectOptions {
   scaleMode: ScaleMode
   audio: AudioSettings
+  /**
+   * Changes the guest resolution another way (through the Quicksand agent),
+   * for the remote scale mode when the protocol can't.
+   */
+  resizeGuest?: (size: DisplaySize) => Promise<unknown>
 }
 
 export interface ConsoleDriver {

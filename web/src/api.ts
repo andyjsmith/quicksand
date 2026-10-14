@@ -169,6 +169,15 @@ export interface FileEntry {
   mode?: string
 }
 
+export interface DisplayResult {
+  width: number
+  height: number
+  /** "virtio-gpu", "qxl", or another driver's name. */
+  adapter: string
+  /** False when the closest mode the driver offers was used instead. */
+  exact: boolean
+}
+
 export interface FileHashes {
   path: string
   size: number
@@ -236,6 +245,12 @@ export const api = {
   processes: (id: string) => request<ProcessList>('GET', `${vmPath(id)}/processes`),
   kill: (id: string, pid: number, force: boolean) =>
     request<void>('POST', `${vmPath(id)}/processes/${pid}/kill`, { force }),
+  /**
+   * Changes the guest's screen resolution through its agent (Windows guests),
+   * exactly where the display driver allows, else to the closest mode.
+   */
+  setDisplay: (id: string, width: number, height: number) =>
+    request<DisplayResult>('POST', `${vmPath(id)}/display`, { width, height }),
   connections: (id: string) => request<ConnectionList>('GET', `${vmPath(id)}/connections`),
   files: (id: string, path = '') => request<FileList>('GET', `${vmPath(id)}/files?${new URLSearchParams({ path })}`),
   mkdir: (id: string, path: string) =>

@@ -1,5 +1,6 @@
 import RFB from '@novnc/novnc'
 import { Emitter } from '../emitter'
+import { GuestResizer } from '../guestResize'
 import { sendKeyCombo, typeWithKeys } from '../keyboard'
 import { websocketURL } from '../layout'
 import type {
@@ -36,7 +37,10 @@ export class VncDriver implements ConsoleDriver {
   private scaleMode: ScaleMode = 'fit'
   private probeTimer?: ReturnType<typeof setTimeout>
   private canvasObserver?: MutationObserver
+  private resizeObserver?: ResizeObserver
   private container?: HTMLElement
+  /** Resizes the guest through the agent; QEMU's VNC can't for Windows guests. */
+  private resizer?: GuestResizer
 
   on<K extends keyof ConsoleEvents>(event: K, handler: (payload: ConsoleEvents[K]) => void) {
     return this.events.on(event, handler)
@@ -53,13 +57,24 @@ export class VncDriver implements ConsoleDriver {
     })
     this.rfb = rfb
     rfb.background = 'transparent'
+    if (options.resizeGuest) {
+      this.resizer = new GuestResizer(options.resizeGuest, () => {
+        this.resizer = undefined
+        this.setScaleModes(['fit', 'none'])
+        this.applyScaleMode()
+      })
+      this.setScaleModes(['remote', 'fit', 'none'])
+      this.resizeObserver = new ResizeObserver(() => this.requestGuestSize())
+      this.resizeObserver.observe(container)
+    }
     this.applyScaleMode()
 
     rfb.addEventListener('connect', () => {
       this.connected = true
       this.events.emit('status', { status: 'connected' })
       this.watchResolution(container)
-      this.probeTimer = setTimeout(() => this.probeResize(), RESIZE_PROBE_MS)
+      if (this.resizer) this.requestGuestSize(0)
+      else this.probeTimer = setTimeout(() => this.probeResize(), RESIZE_PROBE_MS)
     })
     rfb.addEventListener('disconnect', (e) => {
       this.connected = false
@@ -78,6 +93,8 @@ export class VncDriver implements ConsoleDriver {
   disconnect(): void {
     clearTimeout(this.probeTimer)
     this.canvasObserver?.disconnect()
+    this.resizeObserver?.disconnect()
+    this.resizer?.stop()
     const rfb = this.rfb
     this.rfb = undefined
     this.connected = false
@@ -110,6 +127,8 @@ export class VncDriver implements ConsoleDriver {
   setScaleMode(mode: ScaleMode): void {
     this.scaleMode = mode
     this.applyScaleMode()
+    this.resizer?.reset()
+    this.requestGuestSize(0)
   }
 
   setAudio(_settings: AudioSettings): void {}
@@ -124,10 +143,20 @@ export class VncDriver implements ConsoleDriver {
 
   private applyScaleMode(): void {
     if (!this.rfb) return
-    this.rfb.resizeSession = this.scaleMode === 'remote'
+    this.rfb.resizeSession = this.scaleMode === 'remote' && !this.resizer
     // When resizing, still scale down while the guest catches up.
     this.rfb.scaleViewport = this.scaleMode !== 'none'
     this.rfb.clipViewport = false
+  }
+
+  private requestGuestSize(delay?: number): void {
+    if (!this.resizer || !this.container || !this.connected || this.scaleMode !== 'remote') return
+    this.resizer.request({ width: this.container.clientWidth, height: this.container.clientHeight }, delay)
+  }
+
+  private setScaleModes(scaleModes: ScaleMode[]): void {
+    this.capabilities = { ...this.capabilities, scaleModes }
+    this.events.emit('capabilities', this.capabilities)
   }
 
   private probeResize(): void {
@@ -135,8 +164,7 @@ export class VncDriver implements ConsoleDriver {
     // ExtendedDesktopSize support.
     const supported = (this.rfb as unknown as { _supportsSetDesktopSize?: boolean })?._supportsSetDesktopSize
     if (!supported) return
-    this.capabilities = { ...this.capabilities, scaleModes: ['remote', 'fit', 'none'] }
-    this.events.emit('capabilities', this.capabilities)
+    this.setScaleModes(['remote', 'fit', 'none'])
   }
 
   private watchResolution(container: HTMLElement): void {

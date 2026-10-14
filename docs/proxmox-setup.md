@@ -76,7 +76,10 @@ grant /vms/<template-vmid> QuicksandTemplate
 Recommendations for the template VM itself:
 
 - **Display**: `qxl` or `virtio` for SPICE (Quicksand falls back to VNC for
-  other display types). Install the SPICE guest tools (`spice-vdagent`;
+  other display types). With the Quicksand agent on Windows, the console can resize
+  the guest to the browser window even without the SPICE agent; that needs
+  the QXL driver (SPICE guest tools) or a VirtIO GPU driver from virtio-win
+  releases since mid-2026 for exact sizes (see [agent.md](agent.md)). Install the SPICE guest tools (`spice-vdagent`;
   `spice-guest-tools` on Windows) for resizing and clipboard sharing.
 - **Audio**: add an audio device with the `spice` driver for guest sound.
 - **QEMU guest agent** (optional): Quicksand uses it to show when a VM has

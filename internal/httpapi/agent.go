@@ -227,6 +227,31 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, e)
 }
 
+// handleDisplay changes the guest's screen resolution through the agent,
+// for consoles whose protocol can't (VNC, or SPICE without its agent).
+func (s *Server) handleDisplay(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.guestAgent(w, r)
+	if !ok {
+		return
+	}
+	var req agentproto.DisplayRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Width <= 0 || req.Height <= 0 {
+		writeError(w, http.StatusBadRequest, errors.New("width and height are required"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), agentTimeout)
+	defer cancel()
+	res, err := g.SetDisplay(ctx, g.Host, req)
+	if err != nil {
+		writeAgentError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
 // handleShell runs a command (or an interactive shell) in the guest over
 // a stream; see agentproto.ShellRequest. Query: command, shell, pty=1,
 // cols, rows, term.

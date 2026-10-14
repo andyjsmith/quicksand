@@ -75,6 +75,7 @@ func New(d Deps) *Server {
 	s.mux.Handle("GET /api/vms/{id}/shell", user(s.handleShell))
 	s.mux.Handle("GET /api/vms/{id}/connect", user(s.handleConnect))
 	s.mux.Handle("GET /api/vms/{id}/serial", user(s.handleSerial))
+	s.mux.Handle("POST /api/vms/{id}/display", user(s.handleDisplay))
 	s.mux.Handle("GET /api/vms/{id}/processes", user(s.handleProcesses))
 	s.mux.Handle("POST /api/vms/{id}/processes/{pid}/kill", user(s.handleKill))
 	s.mux.Handle("GET /api/vms/{id}/connections", user(s.handleConnections))

@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -209,5 +210,15 @@ func TestDownloadZip(t *testing.T) {
 	}
 	if _, err := c.DownloadZip(ctx, host(srv), FileRef{Base: dir, Path: "missing"}, "pw"); !isStatus(err, 404) {
 		t.Errorf("missing file: %v", err)
+	}
+}
+
+func TestSetDisplayUnsupported(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("resizes the display on Windows")
+	}
+	srv, c := startAgent(t)
+	if _, err := c.SetDisplay(context.Background(), host(srv), agentproto.DisplayRequest{Width: 1280, Height: 800}); !isStatus(err, 501) {
+		t.Errorf("SetDisplay on %s: %v", runtime.GOOS, err)
 	}
 }

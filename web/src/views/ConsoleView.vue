@@ -25,7 +25,13 @@ const root = ref<HTMLElement | null>(null)
 
 // Registered before useConsole so it runs before the console is torn down.
 onBeforeUnmount(capturePreview)
-const ctl = useConsole(toRef(props, 'id'), viewport)
+// Windows agents can resize the guest when the protocol can't (VNC, or
+// SPICE without the SPICE agent).
+const ctl = useConsole(
+  toRef(props, 'id'),
+  viewport,
+  () => vm.value?.agent?.status === 'connected' && vm.value.agent.os === 'windows',
+)
 
 const machines = useMachines()
 onBeforeUnmount(machines.stop)

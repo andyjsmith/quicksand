@@ -23,6 +23,7 @@ import type {
 } from '../types'
 import { DisplayLayout, websocketURL } from '../layout'
 import { OpusPlayer, opusPlayerSupported } from './OpusPlayer'
+import { GuestResizer } from '../guestResize'
 
 const RESIZE_DEBOUNCE_MS = 250
 // After intercepting Ctrl+V, how long to wait for the browser's paste event
@@ -58,6 +59,8 @@ export class SpiceDriver implements ConsoleDriver {
   private observers: { disconnect(): void }[] = []
   private resizeTimer?: ReturnType<typeof setTimeout>
   private lastRequested = ''
+  /** Resizes the guest through the Quicksand agent while the SPICE agent isn't connected. */
+  private resizer?: GuestResizer
   /**
    * The newest clipboard text we know of: copied in the guest, pasted with
    * Ctrl+V, or sent from the sidebar. Given to the guest when it asks for
@@ -77,6 +80,17 @@ export class SpiceDriver implements ConsoleDriver {
   connect(container: HTMLElement, session: ConsoleSession, options: ConnectOptions): void {
     this.scaleMode = options.scaleMode
     this.audio = options.audio
+    if (options.resizeGuest) {
+      this.resizer = new GuestResizer(options.resizeGuest, () => {
+        if (!this.sc?.agent_connected) {
+          this.capabilities = { ...this.capabilities, scaleModes: ['fit', 'none'] }
+          this.events.emit('capabilities', this.capabilities)
+        }
+        this.layout?.setMode(this.effectiveScaleMode())
+      })
+      this.capabilities = { ...this.capabilities, scaleModes: ['remote', 'fit', 'none'] }
+      this.events.emit('capabilities', this.capabilities)
+    }
 
     const screen = document.createElement('div')
     screen.id = `quicksand-spice-screen-${nextScreenId++}`
@@ -151,6 +165,7 @@ export class SpiceDriver implements ConsoleDriver {
 
   disconnect(): void {
     clearTimeout(this.resizeTimer)
+    this.resizer?.stop()
     this.observers.forEach((o) => o.disconnect())
     this.observers = []
     this.cleanups.forEach((fn) => fn())
@@ -216,9 +231,13 @@ export class SpiceDriver implements ConsoleDriver {
     return true
   }
 
-  /** Resizing the guest needs the agent; without it, fall back to scaling. */
+  /**
+   * Resizing the guest needs the SPICE agent or the Quicksand agent;
+   * without either, fall back to scaling.
+   */
   private effectiveScaleMode(): ScaleMode {
-    return this.scaleMode === 'remote' && !this.sc?.agent_connected ? 'fit' : this.scaleMode
+    const canResize = this.sc?.agent_connected || (this.resizer && !this.resizer.failed)
+    return this.scaleMode === 'remote' && !canResize ? 'fit' : this.scaleMode
   }
 
   private handleAgent(): void {
@@ -245,7 +264,11 @@ export class SpiceDriver implements ConsoleDriver {
     clearTimeout(this.resizeTimer)
     this.resizeTimer = setTimeout(() => {
       const viewport = this.layout?.viewportSize()
-      if (!this.sc?.agent_connected || !viewport) return
+      if (!viewport) return
+      if (!this.sc?.agent_connected) {
+        this.resizer?.request(viewport, 0)
+        return
+      }
       // Guests generally want dimensions that are a multiple of 8.
       const width = viewport.width - (viewport.width % 8)
       const height = viewport.height - (viewport.height % 8)

@@ -95,6 +95,13 @@ func (c *Client) Download(ctx context.Context, host string, f FileRef) (*http.Re
 	return c.send(req)
 }
 
+// SetDisplay changes the guest's screen resolution.
+func (c *Client) SetDisplay(ctx context.Context, host string, req agentproto.DisplayRequest) (agentproto.DisplayResult, error) {
+	var out agentproto.DisplayResult
+	err := c.do(ctx, http.MethodPost, host, "/v1/display", req, &out)
+	return out, err
+}
+
 // DownloadZip streams a guest file or directory as a zip archive encrypted
 // with password. The caller closes the response body.
 func (c *Client) DownloadZip(ctx context.Context, host string, f FileRef, password string) (*http.Response, error) {

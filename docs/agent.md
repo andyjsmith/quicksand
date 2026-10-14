@@ -124,6 +124,31 @@ Quicksand exposes these to signed-in users (for their own VMs) as
 `GET /api/vms/{id}/agent` and `POST /api/vms/{id}/exec`, and in the console's
 side panel.
 
+### Display resolution (Windows)
+
+`POST /v1/display` with `{"width": 1920, "height": 1080}` changes the guest's
+screen resolution. The web console uses it for its "Resize guest" mode when
+the protocol can't resize the guest itself: always over VNC, and over SPICE
+until the SPICE agent connects.
+
+The agent runs as a service in session 0, which has no access to the screen,
+so for each change it starts a copy of itself (`quicksand-agent set-display
+W H`) in the console session, as SYSTEM, on whichever desktop has the input
+(the login screen's or the user's). That copy registers the size as the
+display driver's custom mode and switches to it, the way the SPICE agent and
+virtio-win's `viogpuap` do:
+
+| Display (`vga`) | Driver | Sizes |
+| --- | --- | --- |
+| `qxl` | QXL WDDM (`qxldod`, from the SPICE guest tools) | Exact, up to the display memory (`vga: qxl,memory=…` for more) |
+| `virtio` | VirtIO GPU (`viogpudo`, virtio-win) from mid-2026 on | Exact |
+| `virtio` | VirtIO GPU from older virtio-win releases | The closest mode the driver offers |
+| other, or no driver installed | e.g. Microsoft Basic Display Adapter | The closest mode the driver offers |
+
+Widths are rounded down to a multiple of 8, and sizes are kept between
+640×480 and 8192×8192. The response gives the size set, the `adapter`, and
+whether it was `exact`. Linux agents answer 501 for now.
+
 ## Testing
 
 **Unit and integration tests** (`go test ./...`) run real agents in-process:

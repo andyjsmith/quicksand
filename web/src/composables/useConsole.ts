@@ -19,7 +19,11 @@ import type {
  * since Proxmox tickets are single-use and short-lived.
  */
 /** vmId is the Quicksand VM to connect to. */
-export function useConsole(vmId: Ref<string>, container: Ref<HTMLElement | null>) {
+/**
+ * canResizeGuest says whether the VM's agent can change the guest
+ * resolution, for the remote scale mode where the protocol can't.
+ */
+export function useConsole(vmId: Ref<string>, container: Ref<HTMLElement | null>, canResizeGuest?: () => boolean) {
   const protocol = ref<ConsoleProtocol | null>(null)
   const status = ref<ConsoleStatus>('idle')
   const message = ref<string>()
@@ -60,7 +64,12 @@ export function useConsole(vmId: Ref<string>, container: Ref<HTMLElement | null>
       d.on('clipboard', (text) => (guestClipboard.value = text))
       d.on('audio', (a) => (audioStatus.value = a.status))
       driver.value = d
-      d.connect(container.value, session, { scaleMode: scaleMode.value, audio: { ...audio.value } })
+      const id = vmId.value
+      d.connect(container.value, session, {
+        scaleMode: scaleMode.value,
+        audio: { ...audio.value },
+        resizeGuest: canResizeGuest?.() ? (size) => api.setDisplay(id, size.width, size.height) : undefined,
+      })
     } catch (e) {
       if (gen !== generation) return
       status.value = 'error'
