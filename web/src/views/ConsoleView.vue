@@ -26,17 +26,16 @@ const root = ref<HTMLElement | null>(null)
 
 // Registered before useConsole so it runs before the console is torn down.
 onBeforeUnmount(capturePreview)
-// Windows agents can resize the guest when the protocol can't (VNC, or
-// SPICE without the SPICE agent).
-const ctl = useConsole(
-  toRef(props, 'id'),
-  viewport,
-  // Linux guests follow VNC resize requests natively, so only SPICE (without
-  // spice-vdagent) needs the agent there.
-  (protocol) =>
-    vm.value?.agent?.status === 'connected' &&
-    (vm.value.agent.os === 'windows' || (vm.value.agent.os === 'linux' && protocol === 'spice')),
-)
+// The Quicksand agent can resize the guest: preferred on Windows, whose
+// SPICE agent only manages custom sizes with QXL displays (and VNC can't);
+// on Linux the protocols resize exactly themselves, so it's only for SPICE
+// without spice-vdagent.
+const ctl = useConsole(toRef(props, 'id'), viewport, (protocol) => {
+  const agent = vm.value?.agent
+  if (agent?.status !== 'connected') return false
+  if (agent.os === 'windows') return 'prefer'
+  return agent.os === 'linux' && protocol === 'spice' ? 'fallback' : false
+})
 
 const machines = useMachines()
 onBeforeUnmount(machines.stop)

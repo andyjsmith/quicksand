@@ -59,8 +59,12 @@ export class SpiceDriver implements ConsoleDriver {
   private observers: { disconnect(): void }[] = []
   private resizeTimer?: ReturnType<typeof setTimeout>
   private lastRequested = ''
-  /** Resizes the guest through the Quicksand agent while the SPICE agent isn't connected. */
+  /**
+   * Resizes the guest through the Quicksand agent: while the SPICE agent
+   * isn't connected, or always with preferResizer.
+   */
   private resizer?: GuestResizer
+  private preferResizer = false
   /**
    * The newest clipboard text we know of: copied in the guest, pasted with
    * Ctrl+V, or sent from the sidebar. Given to the guest when it asks for
@@ -81,6 +85,7 @@ export class SpiceDriver implements ConsoleDriver {
     this.scaleMode = options.scaleMode
     this.audio = options.audio
     if (options.resizeGuest) {
+      this.preferResizer = !!options.preferResizeGuest
       this.resizer = new GuestResizer(options.resizeGuest, () => {
         if (!this.sc?.agent_connected) {
           this.capabilities = { ...this.capabilities, scaleModes: ['fit', 'none'] }
@@ -265,10 +270,14 @@ export class SpiceDriver implements ConsoleDriver {
     this.resizeTimer = setTimeout(() => {
       const viewport = this.layout?.viewportSize()
       if (!viewport) return
-      if (!this.sc?.agent_connected) {
-        this.resizer?.request(viewport, 0)
+      // The Quicksand agent when preferred or the SPICE agent is missing;
+      // the SPICE agent if the Quicksand one can't.
+      const useResizer = this.resizer && !this.resizer.failed
+      if (useResizer && (this.preferResizer || !this.sc?.agent_connected)) {
+        this.resizer!.request(viewport, 0)
         return
       }
+      if (!this.sc?.agent_connected) return
       // Guests generally want dimensions that are a multiple of 8.
       const width = viewport.width - (viewport.width % 8)
       const height = viewport.height - (viewport.height % 8)

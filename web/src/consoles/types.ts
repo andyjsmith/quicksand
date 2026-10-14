@@ -77,6 +77,11 @@ export interface ConnectOptions {
    * for the remote scale mode when the protocol can't.
    */
   resizeGuest?: (size: DisplaySize) => Promise<unknown>
+  /**
+   * Use resizeGuest even when the protocol could resize the guest itself
+   * (Windows' SPICE agent only manages custom sizes with QXL displays).
+   */
+  preferResizeGuest?: boolean
 }
 
 export interface ConsoleDriver {
