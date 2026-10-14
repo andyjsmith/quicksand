@@ -115,18 +115,25 @@ function connect() {
     if (ws !== socket) return
     ws = undefined
     state.value = 'closed'
-    failed.value = !!exit?.error || !exit
+    const byUser = disconnecting === socket
+    failed.value = !!exit?.error || (!exit && !byUser)
     status.value = exit?.error
       ? exit.error
-      : !exit
-        ? 'The connection closed unexpectedly.'
-        : using === 'serial'
-          ? 'Disconnected from the serial console.'
-          : `The shell exited${exit.code ? ` with code ${exit.code}` : ''}.`
+      : using === 'serial' && (exit || byUser)
+        ? 'Disconnected from the serial console.'
+        : byUser && !exit
+          ? 'Disconnected; the shell was ended.'
+          : !exit
+            ? 'The connection closed unexpectedly.'
+            : `The shell exited${exit.code ? ` with code ${exit.code}` : ''}.`
   }
 }
 
+// The socket the Disconnect button closed, so its closing isn't an error.
+let disconnecting: WebSocket | undefined
+
 function disconnect() {
+  disconnecting = ws
   ws?.close()
 }
 
