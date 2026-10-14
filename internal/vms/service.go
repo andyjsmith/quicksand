@@ -175,8 +175,8 @@ func (s *Service) Deploy(ctx context.Context, owner store.User, req DeployReques
 	vm, err := s.store.CreateVM(ctx, store.VM{
 		ID: id, OwnerID: owner.ID, Name: name, TemplateID: tmpl.ID, Node: tmpl.Node,
 		Cores: req.Cores, MemoryMiB: req.MemoryMiB, NetworkID: network.ID,
-		State: store.VMDeploying, Step: "Queued",
-	}, s.cfg.VMIDs.From, s.cfg.VMIDs.To, existing)
+		State: store.VMDeploying, Step: "Queued", ExpiresAt: s.expiryFor(time.Now()),
+	}, s.cfg.VMIDs.From, s.cfg.VMIDs.To, existing, s.quotaLimits(tmpl, owner)...)
 	if err != nil {
 		return store.VM{}, err
 	}

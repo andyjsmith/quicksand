@@ -127,3 +127,62 @@ func TestAgentIPAllocation(t *testing.T) {
 		t.Fatalf("c after delete: %q, %v", ip, err)
 	}
 }
+
+func TestLimitsAndExpiry(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	alice, _ := s.CreateUser(ctx, "alice", "hash", false)
+	bob, _ := s.CreateUser(ctx, "bob", "hash", false)
+	n := 0
+	create := func(owner int64, tmpl string, limits ...Limit) (VM, error) {
+		n++
+		id := string(rune('a' + n))
+		return s.CreateVM(ctx, VM{ID: id, OwnerID: owner, Name: id, TemplateID: tmpl, Node: "n",
+			Cores: 1, MemoryMiB: 512, NetworkID: "net", State: VMReady}, 100, 199, nil, limits...)
+	}
+	perUser := func(owner int64) Limit { return Limit{TemplateID: "win", OwnerID: owner, Max: 1, Message: "one each"} }
+	global := Limit{TemplateID: "win", Max: 2, Message: "two in all"}
+
+	if _, err := create(alice.ID, "win", perUser(alice.ID), global); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := create(alice.ID, "win", perUser(alice.ID), global); !errors.Is(err, ErrLimit) {
+		t.Errorf("alice's second: %v", err)
+	}
+	// Other templates don't count against the template's limits.
+	if _, err := create(alice.ID, "linux", Limit{TemplateID: "linux", OwnerID: alice.ID, Max: 1}); err != nil {
+		t.Errorf("alice's linux VM: %v", err)
+	}
+	b1, err := create(bob.ID, "win", perUser(bob.ID), global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A third user would exceed the global limit.
+	carol, _ := s.CreateUser(ctx, "carol", "hash", false)
+	if _, err := create(carol.ID, "win", perUser(carol.ID), global); !errors.Is(err, ErrLimit) {
+		t.Errorf("carol over the global limit: %v", err)
+	}
+	// VMs being destroyed don't count.
+	s.UpdateVMProgress(ctx, b1.ID, VMDestroying, "", 0, "")
+	if _, err := create(carol.ID, "win", perUser(carol.ID), global); err != nil {
+		t.Errorf("carol after bob's is destroyed: %v", err)
+	}
+	if c, _ := s.CountVMs(ctx, "", alice.ID); c != 2 {
+		t.Errorf("alice has %d VMs, want 2", c)
+	}
+
+	// Expiry: set, read back, and backfill those without one.
+	at := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	if err := s.SetVMExpiry(ctx, b1.ID, at, 2); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := s.VM(ctx, b1.ID); !v.ExpiresAt.Equal(at) || v.Extends != 2 {
+		t.Errorf("expiry = %v, %d extends", v.ExpiresAt, v.Extends)
+	}
+	if changed, err := s.SetMissingExpiry(ctx, at.Add(time.Hour)); err != nil || changed != 3 {
+		t.Errorf("backfilled %d, %v; want 3", changed, err)
+	}
+	if v, _ := s.VM(ctx, b1.ID); !v.ExpiresAt.Equal(at) {
+		t.Errorf("backfill changed an existing expiry to %v", v.ExpiresAt)
+	}
+}

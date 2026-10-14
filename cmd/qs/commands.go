@@ -21,29 +21,59 @@ import (
 )
 
 type vm struct {
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	TemplateName string  `json:"templateName"`
-	VMID         int     `json:"vmid"`
-	Cores        int     `json:"cores"`
-	MemoryMiB    int     `json:"memoryMiB"`
-	NetworkLabel string  `json:"networkLabel"`
-	State        string  `json:"state"`
-	Step         string  `json:"step"`
-	Progress     float64 `json:"progress"`
-	Error        string  `json:"error"`
-	Power        string  `json:"power"`
-	Booting      bool    `json:"booting"`
-	Action       string  `json:"action"`
-	ActionError  string  `json:"actionError"`
-	Owner        string  `json:"owner"`
-	Serial       bool    `json:"serial"`
+	ID           string     `json:"id"`
+	Name         string     `json:"name"`
+	TemplateName string     `json:"templateName"`
+	VMID         int        `json:"vmid"`
+	Cores        int        `json:"cores"`
+	MemoryMiB    int        `json:"memoryMiB"`
+	NetworkLabel string     `json:"networkLabel"`
+	State        string     `json:"state"`
+	Step         string     `json:"step"`
+	Progress     float64    `json:"progress"`
+	Error        string     `json:"error"`
+	Power        string     `json:"power"`
+	Booting      bool       `json:"booting"`
+	Action       string     `json:"action"`
+	ActionError  string     `json:"actionError"`
+	Owner        string     `json:"owner"`
+	Serial       bool       `json:"serial"`
+	ExpiresAt    *time.Time `json:"expiresAt"`
+	ExtendsLeft  *int       `json:"extendsLeft"`
 	Agent        *struct {
 		IP       string `json:"ip"`
 		Status   string `json:"status"`
 		Hostname string `json:"hostname"`
 		OS       string `json:"os"`
 	} `json:"agent"`
+}
+
+// expiry is when the VM expires, as time left ("-" if never).
+func (v vm) expiry() string {
+	if v.ExpiresAt == nil {
+		return "-"
+	}
+	left := time.Until(*v.ExpiresAt)
+	if left <= 0 {
+		return "now"
+	}
+	return "in " + formatLeft(left)
+}
+
+// formatLeft formats a duration like the web UI: "2d 4h", "3h 12m", "12m".
+func formatLeft(d time.Duration) string {
+	m := int(d.Minutes())
+	switch {
+	case m < 1:
+		return "<1m"
+	case m >= 1440 && m%1440/60 > 0:
+		return fmt.Sprintf("%dd %dh", m/1440, m%1440/60)
+	case m >= 1440:
+		return fmt.Sprintf("%dd", m/1440)
+	case m >= 60:
+		return fmt.Sprintf("%dh %dm", m/60, m%60)
+	}
+	return fmt.Sprintf("%dm", m)
 }
 
 // status summarises a VM's state like the web UI does.
@@ -222,6 +252,10 @@ func cmdList(args []string) error {
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	header := "NAME\tVMID\tSTATUS\tTEMPLATE\tCPUS\tMEMORY\tNETWORK\tAGENT"
+	expiring := slices.ContainsFunc(list, func(v vm) bool { return v.ExpiresAt != nil })
+	if expiring {
+		header += "\tEXPIRES"
+	}
 	if *all {
 		header += "\tOWNER"
 	}
@@ -233,6 +267,9 @@ func cmdList(args []string) error {
 		}
 		line := fmt.Sprintf("%s\t%d\t%s\t%s\t%d\t%s\t%s\t%s", v.Name, v.VMID, v.status(), v.TemplateName, v.Cores,
 			formatMiB(v.MemoryMiB), v.NetworkLabel, agent)
+		if expiring {
+			line += "\t" + v.expiry()
+		}
 		if *all {
 			line += "\t" + v.Owner
 		}
@@ -263,6 +300,7 @@ func cmdTemplates() error {
 		MaxMemoryMiB int    `json:"maxMemoryMiB"`
 		Agent        bool   `json:"agent"`
 		Error        string `json:"error"`
+		QuotaBlocked string `json:"quotaBlocked"`
 	}
 	if err := c.do("GET", "/api/templates", nil, &list); err != nil {
 		return err
@@ -277,7 +315,15 @@ func cmdTemplates() error {
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%v\n", t.ID, t.Name, t.OS, cpus, mem, t.Agent)
 	}
-	return w.Flush()
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	for _, t := range list {
+		if t.QuotaBlocked != "" {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", t.ID, t.QuotaBlocked)
+		}
+	}
+	return nil
 }
 
 func cmdNetworks() error {
@@ -445,6 +491,27 @@ func cmdPower(action string, args []string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "Sent %s to %s.\n", action, v.Name)
+	return nil
+}
+
+func cmdExtend(args []string) error {
+	c, v, err := vmArg(args, "qs extend <vm>")
+	if err != nil {
+		return err
+	}
+	if err := c.do("POST", "/api/vms/"+url.PathEscape(v.ID)+"/extend", nil, &v); err != nil {
+		return err
+	}
+	left := ""
+	if v.ExtendsLeft != nil {
+		left = fmt.Sprintf(" (%d more extensions allowed)", *v.ExtendsLeft)
+		if *v.ExtendsLeft == 1 {
+			left = " (1 more extension allowed)"
+		}
+	}
+	if v.ExpiresAt != nil {
+		fmt.Fprintf(os.Stderr, "%s now expires %s, in %s%s.\n", v.Name, v.ExpiresAt.Local().Format("Mon Jan 2 15:04"), formatLeft(time.Until(*v.ExpiresAt)), left)
+	}
 	return nil
 }
 

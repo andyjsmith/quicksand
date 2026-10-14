@@ -21,6 +21,8 @@ export interface Template {
   agent: boolean
   /** Set when the template can't be read from Proxmox. */
   error?: string
+  /** Why the user can't deploy it right now (a quota is used up). */
+  quotaBlocked?: string
 }
 
 export interface Network {
@@ -62,6 +64,14 @@ export interface VM {
   consoles: ConsoleProtocol[]
   /** Shells can use the VM's serial console. */
   serial: boolean
+  /** When the VM is destroyed unless extended; unset if it never expires. */
+  expiresAt?: string
+  /** How many more times the owner may extend it; unset means no limit. */
+  extendsLeft?: number
+  /** How much each extension adds. */
+  extendSeconds?: number
+  /** How long before expiring the VM should be flagged as about to. */
+  expiryWarningSeconds?: number
   /** False when the guest has no USB tablet, so a VNC mouse is relative. */
   absolutePointer: boolean
   /** Set for VMs with a Quicksand agent. */
@@ -237,6 +247,8 @@ export const api = {
   vm: (id: string) => request<VM>('GET', vmPath(id)),
   deploy: (req: DeployRequest) => request<VM>('POST', '/api/vms', req),
   destroy: (id: string) => request<void>('DELETE', vmPath(id)),
+  /** Pushes back a VM's expiry by the configured extension. */
+  extend: (id: string) => request<VM>('POST', `${vmPath(id)}/extend`),
   power: (id: string, action: PowerAction) => request<void>('POST', `${vmPath(id)}/power`, { action }),
   exec: (id: string, req: ExecRequest) => request<ExecResult>('POST', `${vmPath(id)}/exec`, req),
   createConsole: (id: string, protocol: ConsoleProtocol) =>

@@ -31,6 +31,8 @@ type templateView struct {
 	Agent bool `json:"agent"`
 	// Error is set when the template can't be read from Proxmox.
 	Error string `json:"error,omitempty"`
+	// QuotaBlocked says why the user can't deploy it now (a quota is used up).
+	QuotaBlocked string `json:"quotaBlocked,omitempty"`
 }
 
 func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +48,10 @@ func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
 			v.Error = "This template can't be read from Proxmox."
 		}
 		v.Cores, v.MemoryMiB = d.Cores, d.MemoryMiB
+		if v.QuotaBlocked, err = s.vms.QuotaBlock(r.Context(), t, auth.FromContext(r.Context())); err != nil {
+			writeServiceError(w, err)
+			return
+		}
 		out = append(out, v)
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -116,6 +122,21 @@ func (s *Server) handleDestroy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleExtend pushes back a VM's expiry; administrators aren't limited
+// by the configured number of extensions.
+func (s *Server) handleExtend(w http.ResponseWriter, r *http.Request) {
+	vm, ok := s.ownedVM(w, r)
+	if !ok {
+		return
+	}
+	vm, err := s.vms.Extend(r.Context(), vm, auth.FromContext(r.Context()).IsAdmin)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.vms.View(r.Context(), vm))
 }
 
 var powerActions = map[pve.PowerAction]bool{

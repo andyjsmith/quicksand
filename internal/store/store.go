@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -19,6 +20,9 @@ var (
 
 type Store struct {
 	db *sql.DB
+	// createMu makes CreateVM's limit checks and insert atomic: SQLite's
+	// deferred transactions would let two concurrent ones both pass.
+	createMu sync.Mutex
 }
 
 // migrations are applied in order; the database's user_version records how
@@ -58,6 +62,9 @@ var migrations = []string{
 	// 2: agent addresses.
 	`ALTER TABLE vms ADD COLUMN agent_ip TEXT NOT NULL DEFAULT '';
 	CREATE UNIQUE INDEX vms_agent_ip ON vms(agent_ip) WHERE agent_ip != '';`,
+	// 3: expiry (0: none) and how many times it was extended.
+	`ALTER TABLE vms ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE vms ADD COLUMN extends INTEGER NOT NULL DEFAULT 0;`,
 }
 
 func Open(path string) (*Store, error) {

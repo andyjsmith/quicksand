@@ -10,6 +10,8 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
+	"time"
 
 	"quicksand/internal/agentproto"
 )
@@ -34,7 +36,91 @@ type Config struct {
 	// Agent configures the optional in-guest agent. Required when any
 	// template has agent set.
 	Agent *Agent `json:"agent,omitempty"`
+	// Expiry, if set with a time limit, destroys VMs that long after they
+	// are deployed unless their owners extend them. Without it, VMs never
+	// expire.
+	Expiry *Expiry `json:"expiry,omitempty"`
+	// Quota limits how many VMs exist at once, across all templates; each
+	// template can have its own as well. Without it, there is no limit.
+	Quota *Quota `json:"quota,omitempty"`
 }
+
+// Expiry configures how long deployed VMs live.
+type Expiry struct {
+	// TimeLimit is how long after deploying a VM is destroyed, e.g. "72h" or
+	// "7d". Zero or unset: VMs don't expire.
+	TimeLimit Duration `json:"timeLimit"`
+	// ExtendDuration is how much each extension adds (default 24h).
+	ExtendDuration Duration `json:"extendDuration"`
+	// MaxExtends is how many times an owner may extend a VM: unset is
+	// unlimited, 0 is never. Administrators can always extend.
+	MaxExtends *int `json:"maxExtends"`
+}
+
+// Enabled reports whether VMs expire at all.
+func (e *Expiry) Enabled() bool { return e != nil && e.TimeLimit > 0 }
+
+// Quota limits how many VMs exist at once; unset limits are unlimited.
+type Quota struct {
+	// User is the most VMs one user may have.
+	User *int `json:"user"`
+	// Global is the most VMs there may be across all users.
+	Global *int `json:"global"`
+}
+
+func (q *Quota) validate(where string) error {
+	if q == nil {
+		return nil
+	}
+	if q.User != nil && *q.User < 0 || q.Global != nil && *q.Global < 0 {
+		return fmt.Errorf("%s: limits can't be negative", where)
+	}
+	return nil
+}
+
+// Duration is a time.Duration written as a string: Go's syntax ("90m",
+// "36h"), plus days ("7d", "1d12h").
+type Duration time.Duration
+
+var dayPrefix = regexp.MustCompile(`^(\d+)d`)
+
+func ParseDuration(s string) (time.Duration, error) {
+	var days time.Duration
+	if m := dayPrefix.FindStringSubmatch(s); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		days = time.Duration(n) * 24 * time.Hour
+		if s = s[len(m[0]):]; s == "" {
+			return days, nil
+		}
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration %q (use e.g. \"36h\" or \"7d\")", s)
+	}
+	return days + d, nil
+}
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return errors.New("durations are strings, e.g. \"36h\" or \"7d\"")
+	}
+	if s == "" {
+		*d = 0
+		return nil
+	}
+	v, err := ParseDuration(s)
+	if err != nil {
+		return err
+	}
+	if v < 0 {
+		return fmt.Errorf("negative duration %q", s)
+	}
+	*d = Duration(v)
+	return nil
+}
+
+func (d Duration) MarshalJSON() ([]byte, error) { return json.Marshal(time.Duration(d).String()) }
 
 // Agent configures how Quicksand reaches agents in deployed VMs. See
 // docs/proxmox-setup.md for the network this describes.
@@ -121,6 +207,8 @@ type Template struct {
 	// "C:\\Users\\user\\Desktop". Empty means the root of the filesystem
 	// ("/", or the system drive on Windows).
 	FilesDir string `json:"filesDir"`
+	// Quota limits how many VMs of this template exist at once.
+	Quota *Quota `json:"quota,omitempty"`
 	// Serial enables shells over a serial console: the Proxmox serial
 	// port to use, "serial0" to "serial3". Deploys add it (as a socket)
 	// when the template lacks it. The guest must run a login prompt on
@@ -159,6 +247,17 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) validate() error {
+	if err := c.Quota.validate("quota"); err != nil {
+		return err
+	}
+	if e := c.Expiry; e != nil {
+		if e.MaxExtends != nil && *e.MaxExtends < 0 {
+			return errors.New("expiry.maxExtends can't be negative")
+		}
+		if e.ExtendDuration == 0 {
+			e.ExtendDuration = Duration(24 * time.Hour)
+		}
+	}
 	if c.TLS != nil && (c.TLS.Cert == "" || c.TLS.Key == "") {
 		return errors.New("tls.cert and tls.key are both required")
 	}
@@ -189,6 +288,9 @@ func (c *Config) validate() error {
 		}
 		if t.MaxMemoryMiB <= 0 {
 			t.MaxMemoryMiB = 32768
+		}
+		if err := t.Quota.validate(fmt.Sprintf("templates[%d].quota", i)); err != nil {
+			return err
 		}
 		if t.Serial != "" && !slices.Contains([]string{"serial0", "serial1", "serial2", "serial3"}, t.Serial) {
 			return fmt.Errorf("templates[%d]: serial must be serial0 to serial3", i)

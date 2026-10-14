@@ -47,6 +47,30 @@ and run the installer again (it starts the service once a config exists).
 Upgrades are the same build-copy-install steps; the service restarts on the
 new binary.
 
+`config.schema.json` (in the repository) describes every setting: put
+`"$schema": "./config.schema.json"` at the top of a config file next to it
+for autocompletion and checking in editors such as VS Code.
+
+### Expiry and quotas
+
+```json
+"expiry": { "timeLimit": "7d", "extendDuration": "24h", "maxExtends": 3 },
+"quota": { "user": 5, "global": 50 },
+"templates": [{ "id": "win10", "quota": { "user": 1, "global": 4 }, ... }]
+```
+
+- `expiry`: VMs are destroyed `timeLimit` after they're deployed (durations
+  like `"36h"` or `"7d"`). Owners can push that back by `extendDuration`
+  (default 24h), up to `maxExtends` times: unset is unlimited, `0` never.
+  Administrators can always extend. Without `expiry` or a `timeLimit`, VMs
+  never expire. When expiry is first configured, existing VMs get a full
+  time limit from that moment. VMs close to expiring (within a day, or a
+  quarter of the time limit if that's shorter) are flagged in red.
+- `quota`: the most VMs one user (`user`) or everyone together (`global`) may
+  have at once. The top-level quota counts every template; a template's own
+  counts only its VMs. Unset limits are unlimited, and quotas apply to
+  administrators too.
+
 ## First administrator
 
 ```sh

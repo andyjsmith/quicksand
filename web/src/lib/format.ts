@@ -80,3 +80,34 @@ export function formatCpuTime(ms: number): string {
   const m = Math.floor((s % 3600) / 60)
   return `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 }
+
+/** A duration in milliseconds as "2d 4h", "3h 12m", "12m" or "under a minute". */
+export function formatRemaining(ms: number): string {
+  const m = Math.floor(ms / 60_000)
+  if (m < 1) return 'under a minute'
+  const d = Math.floor(m / 1440)
+  const h = Math.floor((m % 1440) / 60)
+  if (d) return h ? `${d}d ${h}h` : `${d}d`
+  if (h) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`
+  return `${m}m`
+}
+
+export interface ExpiryState {
+  /** Milliseconds left (0 once due). */
+  remaining: number
+  /** Within the warning window before expiring. */
+  soon: boolean
+  /** The owner may still extend it (administrators always can). */
+  canExtend: boolean
+}
+
+/** Where a VM is relative to its expiry at now (ms); null if it never expires. */
+export function expiryState(vm: VM, now: number): ExpiryState | null {
+  if (!vm.expiresAt || vm.state === 'destroying') return null
+  const remaining = Math.max(0, new Date(vm.expiresAt).getTime() - now)
+  return {
+    remaining,
+    soon: remaining <= (vm.expiryWarningSeconds ?? 86_400) * 1000,
+    canExtend: vm.extendsLeft !== 0,
+  }
+}

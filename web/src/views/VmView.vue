@@ -6,6 +6,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import AgentPanel from '@/components/console/AgentPanel.vue'
+import ExpiryBadge from '@/components/ExpiryBadge.vue'
 import VmActionsMenu from '@/components/VmActionsMenu.vue'
 import ConnectionsTab from '@/components/vm/ConnectionsTab.vue'
 import FilesTab from '@/components/vm/FilesTab.vue'
@@ -63,6 +64,7 @@ const details = computed(() => {
             <p class="text-muted-foreground flex items-center gap-1.5 text-sm">
               <span class="inline-block size-2 rounded-full" :class="status?.dot" />
               {{ status?.label }}
+              <ExpiryBadge v-if="vm.expiresAt" :vm="vm" extendable class="ml-2" @error="error = $event" />
             </p>
           </div>
           <Button v-if="canConnect" as-child>

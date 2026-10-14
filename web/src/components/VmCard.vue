@@ -7,13 +7,17 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
-import { formatMemory, formatUptime, osIcon, vmStatus } from '@/lib/format'
+import { useMinuteClock } from '@/composables/useNow'
+import { expiryState, formatMemory, formatUptime, osIcon, vmStatus } from '@/lib/format'
 import { loadPreview, onPreviewChange } from '@/lib/previews'
+import ExpiryBadge from './ExpiryBadge.vue'
 import VmActionsMenu from './VmActionsMenu.vue'
 
 const props = defineProps<{ vm: VM }>()
 
 const status = computed(() => vmStatus(props.vm))
+const now = useMinuteClock()
+const expiringSoon = computed(() => !!expiryState(props.vm, now.value.getTime())?.soon)
 const icon = computed(() => osIcon(props.vm.os))
 const ready = computed(() => props.vm.state === 'ready')
 const busy = computed(() => props.vm.state === 'deploying' || props.vm.state === 'destroying' || !!props.vm.action)
@@ -36,7 +40,10 @@ const primaryPower = computed<{ action: PowerAction; label: string } | null>(() 
 </script>
 
 <template>
-  <Card class="flex flex-col gap-0 overflow-hidden p-0">
+  <Card
+    class="flex flex-col gap-0 overflow-hidden p-0"
+    :class="{ 'ring-destructive ring-2': expiringSoon }"
+  >
     <!-- Preview -->
     <component
       :is="canConnect ? RouterLink : 'div'"
@@ -112,6 +119,7 @@ const primaryPower = computed<{ action: PowerAction; label: string } | null>(() 
         </Button>
       </div>
 
+      <ExpiryBadge v-if="vm.expiresAt" :vm="vm" extendable class="-mt-1" @error="error = $event" />
       <p v-if="vm.state === 'failed' || vm.actionError || error" class="text-destructive flex gap-1.5 text-xs">
         <CircleAlert class="mt-0.5 size-3 shrink-0" />
         <span class="break-words">{{ error || vm.actionError || vm.error }}</span>

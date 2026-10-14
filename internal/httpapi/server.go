@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"quicksand/internal/auth"
@@ -76,6 +77,7 @@ func New(d Deps) *Server {
 	s.mux.Handle("GET /api/vms/{id}/connect", user(s.handleConnect))
 	s.mux.Handle("GET /api/vms/{id}/serial", user(s.handleSerial))
 	s.mux.Handle("POST /api/vms/{id}/display", user(s.handleDisplay))
+	s.mux.Handle("POST /api/vms/{id}/extend", user(s.handleExtend))
 	s.mux.Handle("GET /api/vms/{id}/processes", user(s.handleProcesses))
 	s.mux.Handle("POST /api/vms/{id}/processes/{pid}/kill", user(s.handleKill))
 	s.mux.Handle("GET /api/vms/{id}/connections", user(s.handleConnections))
@@ -168,6 +170,16 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
+// detail turns "<sentinel>: what happened" into "What happened.", for
+// errors whose detail is meant for the user.
+func detail(err, sentinel error) error {
+	msg := strings.TrimPrefix(err.Error(), sentinel.Error()+": ")
+	if msg != "" && msg[0] >= 'a' && msg[0] <= 'z' {
+		msg = string(msg[0]-'a'+'A') + msg[1:]
+	}
+	return errors.New(strings.TrimSuffix(msg, ".") + ".")
+}
+
 // writeServiceError maps errors from Proxmox, the store and the VM service
 // to HTTP responses.
 func writeServiceError(w http.ResponseWriter, err error) {
@@ -179,6 +191,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("no free VM IDs; destroy a VM first"))
 	case errors.Is(err, vms.ErrBadRequest):
 		writeError(w, http.StatusBadRequest, err)
+	case errors.Is(err, store.ErrLimit):
+		writeError(w, http.StatusConflict, detail(err, store.ErrLimit))
+	case errors.Is(err, vms.ErrCantExtend):
+		writeError(w, http.StatusConflict, detail(err, vms.ErrCantExtend))
 	case errors.Is(err, vms.ErrBusy), errors.Is(err, vms.ErrNotReady), errors.Is(err, store.ErrConflict):
 		writeError(w, http.StatusConflict, err)
 	case errors.As(err, &pe) && pe.Status == http.StatusForbidden:

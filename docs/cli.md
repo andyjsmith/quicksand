@@ -32,6 +32,7 @@ can name anyone's VM.
 | `qs deploy [options] <template>` | Deploy and wait until ready. Options: `-name`, `-cpus`, `-memory` (MiB), `-network`, `-no-agent` (no agent NIC: the VM is isolated from Quicksand), `-no-wait` |
 | `qs start\|shutdown\|stop\|reboot\|reset\|suspend\|resume <vm>` | Power actions |
 | `qs destroy [-y] <vm>` | Destroy a VM and its disks |
+| `qs extend <vm>` | Push back a VM's expiry, where the server's `expiry` settings allow it |
 | `qs ps <vm>` | The guest's processes (needs the agent) |
 | `qs kill [-f] <vm> <pid>` | End a guest process; `-f` sends SIGKILL on Linux (Windows always terminates) |
 | `qs netstat <vm>` | The guest's TCP and UDP sockets and their processes |

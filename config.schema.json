@@ -1,0 +1,223 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://quicksand.local/config.schema.json",
+  "title": "Quicksand server configuration",
+  "description": "config.json for the Quicksand server. Add \"$schema\": \"./config.schema.json\" to a config file for autocompletion and checking in editors such as VS Code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pve"],
+  "properties": {
+    "$schema": { "type": "string", "description": "The schema this file follows, for editors." },
+    "listen": {
+      "type": "string",
+      "description": "Address the HTTP server binds to.",
+      "default": "127.0.0.1:8484",
+      "examples": ["127.0.0.1:8484", ":443"]
+    },
+    "database": {
+      "type": "string",
+      "description": "Path of the SQLite database file.",
+      "default": "quicksand.db"
+    },
+    "secureCookies": {
+      "type": "boolean",
+      "description": "Mark session cookies Secure. Enable when Quicksand is served over HTTPS (directly or behind a proxy).",
+      "default": false
+    },
+    "tls": {
+      "type": "object",
+      "description": "Serve HTTPS with this certificate. Browsers only allow clipboard access and audio decoding on secure origins, so serve over HTTPS (here or via a reverse proxy) anywhere but localhost.",
+      "additionalProperties": false,
+      "required": ["cert", "key"],
+      "properties": {
+        "cert": { "type": "string", "description": "PEM certificate file path; may include intermediates." },
+        "key": { "type": "string", "description": "PEM private key file path." }
+      }
+    },
+    "pve": {
+      "type": "object",
+      "description": "The Proxmox VE API Quicksand manages VMs through (see docs/proxmox-setup.md).",
+      "additionalProperties": false,
+      "required": ["url", "tokenId", "tokenSecret"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Base URL of the Proxmox API.",
+          "examples": ["https://pve.example:8006"]
+        },
+        "tokenId": { "type": "string", "description": "API token ID.", "examples": ["quicksand@pve!quicksand"] },
+        "tokenSecret": { "type": "string", "description": "API token secret." },
+        "fingerprint": {
+          "type": "string",
+          "description": "Pins the SHA-256 fingerprint of the API certificate (hex, colons optional). Leave empty to use the system trust store."
+        },
+        "insecureSkipVerify": {
+          "type": "boolean",
+          "description": "Disables API certificate verification entirely.",
+          "default": false
+        },
+        "pool": {
+          "type": "string",
+          "description": "Resource pool deployed VMs are created in. Grant the API token its VM privileges on /pool/<pool>. Required to deploy templates."
+        }
+      }
+    },
+    "vmids": {
+      "type": "object",
+      "description": "The range of Proxmox VM IDs deployments are created with. Required to deploy templates.",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "type": "integer", "minimum": 100, "description": "First VM ID (inclusive)." },
+        "to": { "type": "integer", "minimum": 100, "description": "Last VM ID (inclusive)." }
+      }
+    },
+    "templates": {
+      "type": "array",
+      "description": "Proxmox templates users can deploy.",
+      "items": { "$ref": "#/definitions/template" }
+    },
+    "networks": {
+      "type": "array",
+      "description": "Networks users can deploy onto. At least one is required to deploy templates.",
+      "items": { "$ref": "#/definitions/network" }
+    },
+    "agent": {
+      "type": "object",
+      "description": "The optional in-guest agent. Required when any template has agent set (see docs/agent.md).",
+      "additionalProperties": false,
+      "required": ["privateKey", "network"],
+      "properties": {
+        "privateKey": {
+          "type": "string",
+          "pattern": "^ed25519-private:",
+          "description": "Key Quicksand authenticates to agents with (create one with \"quicksand agent keygen\"). Agents trust its public key, so keep it: a new key means updating every template."
+        },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 7070, "description": "Port agents listen on." },
+        "proxy": {
+          "type": "string",
+          "description": "A socks5:// URL agent connections go through, e.g. \"ssh -D\" into the Quicksand host while developing elsewhere.",
+          "examples": ["socks5://127.0.0.1:1080"]
+        },
+        "network": {
+          "type": "object",
+          "description": "The network agent NICs are on (see docs/proxmox-setup.md).",
+          "additionalProperties": false,
+          "properties": {
+            "bridge": { "type": "string", "description": "The SDN VNet (with \"Isolate Ports\") agent NICs attach to." },
+            "subnet": { "type": "string", "description": "Subnet agent NICs are addressed from.", "examples": ["10.99.0.0/24"] },
+            "serverIP": {
+              "type": "string",
+              "description": "Quicksand's own address on the agent network. Agents only accept connections from it (enforced by the VM firewall)."
+            },
+            "macPrefix": {
+              "type": "string",
+              "pattern": "^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){2}$",
+              "default": "02:51:53",
+              "description": "First three bytes of agent NIC MACs."
+            },
+            "nic": { "type": "string", "default": "net1", "description": "VM network device used for the agent." },
+            "model": { "type": "string", "default": "e1000", "description": "NIC model (e1000 needs no guest drivers)." }
+          }
+        }
+      }
+    },
+    "expiry": {
+      "type": "object",
+      "description": "Destroys VMs a time limit after they are deployed unless their owners extend them. Without a time limit, VMs never expire. VMs deployed before expiry was configured get a full time limit from when the server starts.",
+      "additionalProperties": false,
+      "properties": {
+        "timeLimit": {
+          "$ref": "#/definitions/duration",
+          "description": "How long after deploying a VM is destroyed. Unset or empty: VMs don't expire."
+        },
+        "extendDuration": {
+          "$ref": "#/definitions/duration",
+          "description": "How much each extension adds.",
+          "default": "24h"
+        },
+        "maxExtends": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many times an owner may extend a VM. Unset: no limit; 0: never. Administrators can always extend."
+        }
+      }
+    },
+    "quota": {
+      "$ref": "#/definitions/quota",
+      "description": "Limits how many VMs exist at once across all templates. Unset limits are unlimited."
+    }
+  },
+  "definitions": {
+    "duration": {
+      "type": "string",
+      "description": "A duration: Go's syntax (\"90m\", \"36h\", \"1h30m\") plus days (\"7d\", \"1d12h\").",
+      "pattern": "^$|^([0-9]+d)?([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))*$",
+      "examples": ["24h", "3d", "1d12h", "90m"]
+    },
+    "quota": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "user": { "type": "integer", "minimum": 0, "description": "The most VMs one user may have. Unset: no limit." },
+        "global": { "type": "integer", "minimum": 0, "description": "The most VMs there may be across all users. Unset: no limit." }
+      }
+    },
+    "template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "vmid", "node"],
+      "properties": {
+        "id": { "type": "string", "description": "Identifies the template in the API and database; it must not change." },
+        "vmid": { "type": "integer", "minimum": 100, "description": "The Proxmox template's VM ID." },
+        "node": { "type": "string", "description": "The Proxmox node the template is on." },
+        "name": { "type": "string", "description": "What users see; defaults to the ID." },
+        "description": { "type": "string", "description": "Shown on the template's card." },
+        "os": {
+          "type": "string",
+          "enum": ["windows", "linux", "other"],
+          "description": "A hint for the icon shown, and how guest features behave."
+        },
+        "fullClone": { "type": "boolean", "default": false, "description": "Copy the template's disks instead of linking to them." },
+        "cores": { "type": "integer", "minimum": 0, "description": "Default CPUs; 0 uses the template's own." },
+        "memoryMiB": { "type": "integer", "minimum": 0, "description": "Default memory in MiB; 0 uses the template's own." },
+        "maxCores": { "type": "integer", "minimum": 1, "default": 16, "description": "Most CPUs offered in the deploy dialog." },
+        "maxMemoryMiB": { "type": "integer", "minimum": 1, "default": 32768, "description": "Most memory offered in the deploy dialog, in MiB." },
+        "agent": {
+          "type": "boolean",
+          "default": false,
+          "description": "The template has the Quicksand agent installed; clones get a NIC on the agent network."
+        },
+        "filesDir": {
+          "type": "string",
+          "description": "The guest's default path: where file browsing, shells and relative paths (e.g. qs upload/download) start. Empty: the root of the filesystem (/, or the system drive on Windows).",
+          "examples": ["/home/user", "C:\\Users\\user\\Desktop"]
+        },
+        "quota": {
+          "$ref": "#/definitions/quota",
+          "description": "Limits how many VMs of this template exist at once. Unset limits are unlimited."
+        },
+        "serial": {
+          "type": "string",
+          "enum": ["", "serial0", "serial1", "serial2", "serial3"],
+          "description": "Enables shells over this serial port (added as a socket when deploying if the template lacks it). The guest must run a login prompt on it."
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "description": "Identifies the network in the API; it must not change." },
+        "bridge": {
+          "type": ["string", "null"],
+          "description": "A Proxmox bridge or SDN VNet. Null (or omitted) means isolated: the guest gets no network interface at all."
+        },
+        "vlan": { "type": "integer", "minimum": 0, "maximum": 4094, "description": "Tags the guest's interface on the bridge." },
+        "label": { "type": "string", "description": "What users see; defaults to the ID." },
+        "default": { "type": "boolean", "description": "Used when none is chosen; the first network if none is marked." }
+      }
+    }
+  }
+}

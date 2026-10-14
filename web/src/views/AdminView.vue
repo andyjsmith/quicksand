@@ -17,6 +17,7 @@ import {
 import { onMounted, ref } from 'vue'
 import { api, errorMessage, type AgentSettings, type User, type VM } from '@/api'
 import AppHeader from '@/components/AppHeader.vue'
+import ExpiryBadge from '@/components/ExpiryBadge.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   AlertDialog,
@@ -150,6 +151,22 @@ async function deleteUser() {
   }
 }
 
+// Administrators can destroy anyone's machine.
+const destroying = ref<VM | null>(null)
+async function destroyVM() {
+  const vm = destroying.value
+  if (!vm) return
+  error.value = undefined
+  try {
+    await api.destroy(vm.id)
+    await loadVMs()
+  } catch (e) {
+    error.value = errorMessage(e)
+  } finally {
+    destroying.value = null
+  }
+}
+
 const vmCount = (u: User) => vms.value.filter((vm) => vm.owner === u.username).length
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
 </script>
@@ -268,6 +285,8 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
                   <TableHead>Resources</TableHead>
                   <TableHead>Agent</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead class="w-10" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -287,8 +306,23 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
                       {{ vmStatus(vm).label }}
                     </span>
                   </TableCell>
+                  <TableCell>
+                    <ExpiryBadge v-if="vm.expiresAt" :vm="vm" extendable @error="error = $event" />
+                    <span v-else class="text-muted-foreground">—</span>
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      :title="`Destroy ${vm.name}`"
+                      :disabled="vm.state === 'destroying'"
+                      @click="destroying = vm"
+                    >
+                      <Trash2 />
+                    </Button>
+                  </TableCell>
                 </TableRow>
-                <TableEmpty v-if="!vms.length" :colspan="7">No machines are deployed.</TableEmpty>
+                <TableEmpty v-if="!vms.length" :colspan="9">No machines are deployed.</TableEmpty>
               </TableBody>
             </Table>
           </div>
@@ -328,6 +362,22 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog :open="!!destroying" @update:open="(o) => !o && (destroying = null)">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Destroy {{ destroying?.name }}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {{ destroying?.owner }}'s machine (VM {{ destroying?.vmid }}) and its disks are deleted. This can't be
+            undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" @click="destroyVM">Destroy</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
 
     <AlertDialog :open="!!deleting" @update:open="(o) => !o && (deleting = null)">
       <AlertDialogContent>

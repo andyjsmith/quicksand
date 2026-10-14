@@ -38,6 +38,14 @@ type View struct {
 	ActionError     string             `json:"actionError,omitempty"`
 	Consoles        []console.Protocol `json:"consoles"`
 	AbsolutePointer bool               `json:"absolutePointer"`
+	// ExpiresAt is when the VM is destroyed, unless extended; unset if it
+	// never is. ExtendsLeft is how many more times its owner may extend it
+	// (unset: no limit), and ExpiryWarningSeconds how long before expiring
+	// it should be shown as about to.
+	ExpiresAt            *time.Time `json:"expiresAt,omitempty"`
+	ExtendsLeft          *int       `json:"extendsLeft,omitempty"`
+	ExtendSeconds        int64      `json:"extendSeconds,omitempty"`
+	ExpiryWarningSeconds int64      `json:"expiryWarningSeconds,omitempty"`
 	// Serial is set when shells can use the VM's serial console.
 	Serial bool `json:"serial"`
 	// Agent is set for VMs with a Quicksand agent.
@@ -98,6 +106,16 @@ func (s *Service) View(ctx context.Context, vm store.VM) View {
 	}
 	if n, ok := s.cfg.Network(vm.NetworkID); ok {
 		v.NetworkLabel = n.Label
+	}
+	if s.cfg.Expiry.Enabled() && !vm.ExpiresAt.IsZero() {
+		at := vm.ExpiresAt
+		v.ExpiresAt = &at
+		if left := s.extendsLeft(vm); left >= 0 {
+			v.ExtendsLeft = &left
+		}
+		v.ExtendSeconds = int64(time.Duration(s.cfg.Expiry.ExtendDuration).Seconds())
+		// A day's notice, or a quarter of the time limit if that's shorter.
+		v.ExpiryWarningSeconds = int64(min(24*time.Hour, time.Duration(s.cfg.Expiry.TimeLimit)/4).Seconds())
 	}
 	v.Action, v.ActionError = s.Action(vm.ID)
 	if vm.State != store.VMReady {

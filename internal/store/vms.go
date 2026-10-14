@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -43,32 +44,64 @@ type VM struct {
 	CreatedAt time.Time
 	// AgentIP is the VM's address on the agent network, if it has an agent.
 	AgentIP string
+	// ExpiresAt is when the VM is destroyed, zero if never; Extends counts
+	// how many times its owner pushed that back.
+	ExpiresAt time.Time
+	Extends   int
 }
 
 const vmColumns = `id, owner_id, name, template_id, node, vmid, cores, memory_mib, network_id,
-	state, step, progress, error, created_at, agent_ip`
+	state, step, progress, error, created_at, agent_ip, expires_at, extends`
 
 func scanVM(row interface{ Scan(...any) error }) (VM, error) {
 	var v VM
-	var created int64
+	var created, expires int64
 	err := row.Scan(&v.ID, &v.OwnerID, &v.Name, &v.TemplateID, &v.Node, &v.VMID, &v.Cores, &v.MemoryMiB,
-		&v.NetworkID, &v.State, &v.Step, &v.Progress, &v.Error, &created, &v.AgentIP)
+		&v.NetworkID, &v.State, &v.Step, &v.Progress, &v.Error, &created, &v.AgentIP, &expires, &v.Extends)
 	if errors.Is(err, sql.ErrNoRows) {
 		return VM{}, ErrNotFound
 	}
 	v.CreatedAt = fromUnix(created)
+	if expires != 0 {
+		v.ExpiresAt = fromUnix(expires)
+	}
 	return v, err
 }
 
+// Limit caps how many deployments may exist with TemplateID ("" for any)
+// and OwnerID (0 for anyone's); CreateVM fails with ErrLimit (wrapped with
+// Message) when creating one would exceed Max.
+type Limit struct {
+	TemplateID string
+	OwnerID    int64
+	Max        int
+	Message    string
+}
+
+// ErrLimit is returned when a deployment would exceed a Limit.
+var ErrLimit = errors.New("quota reached")
+
 // CreateVM records a new deployment, assigning it the lowest free VM ID in
 // [fromID, toID] that is not in use by another deployment or in exclude
-// (IDs Proxmox already has).
-func (s *Store) CreateVM(ctx context.Context, v VM, fromID, toID int, exclude map[int]bool) (VM, error) {
+// (IDs Proxmox already has). It checks limits in the same transaction.
+func (s *Store) CreateVM(ctx context.Context, v VM, fromID, toID int, exclude map[int]bool, limits ...Limit) (VM, error) {
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return VM{}, err
 	}
 	defer tx.Rollback()
+
+	for _, l := range limits {
+		n, err := countVMs(ctx, tx, l.TemplateID, l.OwnerID)
+		if err != nil {
+			return VM{}, err
+		}
+		if n >= l.Max {
+			return VM{}, fmt.Errorf("%w: %s", ErrLimit, l.Message)
+		}
+	}
 
 	used := map[int]bool{}
 	rows, err := tx.QueryContext(ctx, `SELECT vmid FROM vms WHERE vmid BETWEEN ? AND ?`, fromID, toID)
@@ -98,9 +131,9 @@ func (s *Store) CreateVM(ctx context.Context, v VM, fromID, toID int, exclude ma
 
 	v.CreatedAt = time.Now().UTC().Truncate(time.Second)
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO vms (`+vmColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO vms (`+vmColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		v.ID, v.OwnerID, v.Name, v.TemplateID, v.Node, v.VMID, v.Cores, v.MemoryMiB, v.NetworkID,
-		v.State, v.Step, v.Progress, v.Error, unix(v.CreatedAt), v.AgentIP)
+		v.State, v.Step, v.Progress, v.Error, unix(v.CreatedAt), v.AgentIP, unixOrZero(v.ExpiresAt), v.Extends)
 	if err != nil {
 		return VM{}, err
 	}
@@ -140,6 +173,53 @@ func (s *Store) UpdateVMProgress(ctx context.Context, id string, state VMState, 
 	return expectRow(s.db.ExecContext(ctx,
 		`UPDATE vms SET state = ?, step = ?, progress = ?, error = ? WHERE id = ?`,
 		state, step, progress, errMsg, id))
+}
+
+// CountVMs counts deployments with templateID ("" for any) and ownerID (0
+// for anyone's), except those being destroyed.
+func (s *Store) CountVMs(ctx context.Context, templateID string, ownerID int64) (int, error) {
+	return countVMs(ctx, s.db, templateID, ownerID)
+}
+
+func countVMs(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, templateID string, ownerID int64) (int, error) {
+	query := `SELECT COUNT(*) FROM vms WHERE state != ?`
+	args := []any{VMDestroying}
+	if templateID != "" {
+		query += ` AND template_id = ?`
+		args = append(args, templateID)
+	}
+	if ownerID != 0 {
+		query += ` AND owner_id = ?`
+		args = append(args, ownerID)
+	}
+	var n int
+	err := q.QueryRowContext(ctx, query, args...).Scan(&n)
+	return n, err
+}
+
+// SetVMExpiry records a VM's expiry (zero for none) and extension count.
+func (s *Store) SetVMExpiry(ctx context.Context, id string, expiresAt time.Time, extends int) error {
+	return expectRow(s.db.ExecContext(ctx, `UPDATE vms SET expires_at = ?, extends = ? WHERE id = ?`,
+		unixOrZero(expiresAt), extends, id))
+}
+
+// SetMissingExpiry gives VMs without an expiry (deployed while none was
+// configured) one at expiresAt, returning how many it changed.
+func (s *Store) SetMissingExpiry(ctx context.Context, expiresAt time.Time) (int64, error) {
+	r, err := s.db.ExecContext(ctx, `UPDATE vms SET expires_at = ? WHERE expires_at = 0`, unix(expiresAt))
+	if err != nil {
+		return 0, err
+	}
+	return r.RowsAffected()
+}
+
+func unixOrZero(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return unix(t)
 }
 
 func (s *Store) DeleteVM(ctx context.Context, id string) error {

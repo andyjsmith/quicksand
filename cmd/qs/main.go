@@ -22,6 +22,7 @@ Machines (a VM is named by its name, Proxmox VM ID or Quicksand ID):
       -name NAME  -cpus N  -memory MiB  -network ID  -no-agent  -no-wait
   start | shutdown | stop | reboot | reset | suspend | resume <vm>
   destroy [-y] <vm>                          destroy a VM and its disks
+  extend <vm>                                push back a VM's expiry
 
 Agent:
   ps <vm>                                    list the guest's processes
@@ -74,6 +75,8 @@ func main() {
 		err = cmdPower(cmd, args)
 	case "destroy":
 		err = cmdDestroy(args)
+	case "extend":
+		err = cmdExtend(args)
 	case "ps":
 		err = cmdPs(args)
 	case "kill":

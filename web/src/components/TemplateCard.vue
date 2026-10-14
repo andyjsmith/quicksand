@@ -28,6 +28,7 @@ const icon = computed(() => osIcon(props.template.os))
     </div>
     <p v-if="template.description" class="text-muted-foreground line-clamp-2 text-xs">{{ template.description }}</p>
     <div class="flex-1" />
-    <Button :disabled="!!template.error" @click="$emit('deploy')"><Rocket /> Deploy</Button>
+    <p v-if="template.quotaBlocked" class="text-destructive text-xs">{{ template.quotaBlocked }}</p>
+    <Button :disabled="!!template.error || !!template.quotaBlocked" @click="$emit('deploy')"><Rocket /> Deploy</Button>
   </Card>
 </template>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useTitle } from '@vueuse/core'
 import { CircleAlert, Layers, Monitor } from '@lucide/vue'
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, errorMessage, type Network, type Template } from '@/api'
 import AppHeader from '@/components/AppHeader.vue'
 import DeployDialog from '@/components/DeployDialog.vue'
@@ -30,11 +30,26 @@ onMounted(async () => {
   }
 })
 
+// Quotas depend on how many machines exist: refresh what can be deployed
+// when ours change (others' are checked when deploying).
+async function refreshTemplates() {
+  try {
+    templates.value = await api.templates()
+  } catch {
+    // Keep the last list.
+  }
+}
+watch(
+  () => machines.machines.value.filter((v) => v.state !== 'destroying').length,
+  (n, old) => old !== undefined && n !== old && refreshTemplates(),
+)
+
 const deploying = ref<Template | null>(null)
 const deployOpen = ref(false)
 function startDeploy(t: Template) {
   deploying.value = t
   deployOpen.value = true
+  refreshTemplates()
 }
 </script>
 
