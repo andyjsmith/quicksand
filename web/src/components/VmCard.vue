@@ -1,43 +1,15 @@
 <script setup lang="ts">
-import {
-  CircleAlert,
-  EllipsisVertical,
-  Monitor,
-  Pause,
-  Play,
-  Power,
-  RotateCcw,
-  RotateCw,
-  Square,
-  SquareTerminal,
-  Trash2,
-} from '@lucide/vue'
+import { CircleAlert, Monitor, Play, SquareTerminal } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { api, errorMessage, type PowerAction, type VM } from '@/api'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import type { PowerAction, VM } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { formatMemory, formatUptime, osIcon, vmStatus } from '@/lib/format'
 import { loadPreview, onPreviewChange } from '@/lib/previews'
+import VmActionsMenu from './VmActionsMenu.vue'
 
 const props = defineProps<{ vm: VM }>()
 
@@ -51,25 +23,8 @@ const preview = ref(loadPreview(props.vm.id))
 onBeforeUnmount(onPreviewChange((id) => id === props.vm.id && (preview.value = loadPreview(id))))
 
 const error = ref<string>()
-const confirmingDestroy = ref(false)
-
-async function power(action: PowerAction) {
-  error.value = undefined
-  try {
-    await api.power(props.vm.id, action)
-  } catch (e) {
-    error.value = errorMessage(e)
-  }
-}
-
-async function destroy() {
-  error.value = undefined
-  try {
-    await api.destroy(props.vm.id)
-  } catch (e) {
-    error.value = errorMessage(e)
-  }
-}
+const actions = ref<InstanceType<typeof VmActionsMenu>>()
+const power = (action: PowerAction) => actions.value?.power(action)
 
 // What the primary button does when the VM isn't running.
 const primaryPower = computed<{ action: PowerAction; label: string } | null>(() => {
@@ -124,52 +79,14 @@ const primaryPower = computed<{ action: PowerAction; label: string } | null>(() 
     <div class="flex flex-col gap-2 p-3">
       <div class="flex items-start gap-2">
         <div class="min-w-0 flex-1">
-          <h3 class="truncate text-sm font-semibold">{{ vm.name }}</h3>
+          <h3 class="truncate text-sm font-semibold">
+            <RouterLink :to="{ name: 'vm', params: { id: vm.id } }" class="hover:underline">{{ vm.name }}</RouterLink>
+          </h3>
           <p class="text-muted-foreground truncate text-xs">
             {{ vm.templateName }} · {{ vm.cores }} CPUs · {{ formatMemory(vm.memoryMiB) }} · {{ vm.networkLabel }}
           </p>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger as-child>
-            <Button variant="ghost" size="icon-sm" title="Actions" :disabled="vm.state === 'destroying'">
-              <EllipsisVertical />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" class="w-44">
-            <template v-if="ready">
-              <DropdownMenuItem :disabled="busy || vm.power !== 'stopped'" @select="power('start')">
-                <Play /> Start
-              </DropdownMenuItem>
-              <DropdownMenuItem :disabled="busy || vm.power !== 'running'" @select="power('shutdown')">
-                <Power /> Shut down
-              </DropdownMenuItem>
-              <DropdownMenuItem :disabled="busy || vm.power !== 'running'" @select="power('reboot')">
-                <RotateCw /> Reboot
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                v-if="vm.power === 'paused' || vm.power === 'suspended'"
-                :disabled="busy"
-                @select="power('resume')"
-              >
-                <Play /> Resume
-              </DropdownMenuItem>
-              <DropdownMenuItem v-else :disabled="busy || vm.power !== 'running'" @select="power('suspend')">
-                <Pause /> Suspend
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem :disabled="busy || vm.power === 'stopped'" @select="power('stop')">
-                <Square /> Force stop
-              </DropdownMenuItem>
-              <DropdownMenuItem :disabled="busy || vm.power !== 'running'" @select="power('reset')">
-                <RotateCcw /> Force reset
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </template>
-            <DropdownMenuItem variant="destructive" @select="confirmingDestroy = true">
-              <Trash2 /> Destroy
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <VmActionsMenu ref="actions" :vm="vm" show-details @error="error = $event" />
       </div>
 
       <div class="flex items-center justify-between gap-2">
@@ -201,19 +118,5 @@ const primaryPower = computed<{ action: PowerAction; label: string } | null>(() 
       </p>
     </div>
 
-    <AlertDialog v-model:open="confirmingDestroy">
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Destroy {{ vm.name }}?</AlertDialogTitle>
-          <AlertDialogDescription>
-            The VM is powered off and deleted along with its disks. This can't be undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" @click="destroy">Destroy</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
   </Card>
 </template>

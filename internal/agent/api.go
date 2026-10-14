@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -21,6 +22,17 @@ func (a *Agent) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/info", a.handleInfo)
 	mux.HandleFunc("POST /v1/exec", a.handleExec)
+	mux.HandleFunc("GET /v1/shell", a.handleShell)
+	mux.HandleFunc("GET /v1/connect", a.handleConnect)
+	mux.HandleFunc("GET /v1/processes", a.handleProcesses)
+	mux.HandleFunc("POST /v1/processes/{pid}/kill", a.handleKill)
+	mux.HandleFunc("GET /v1/connections", a.handleConnections)
+	mux.HandleFunc("GET /v1/files", a.handleListFiles)
+	mux.HandleFunc("DELETE /v1/files", a.handleDeleteFile)
+	mux.HandleFunc("POST /v1/files/mkdir", a.handleMkdir)
+	mux.HandleFunc("GET /v1/files/content", a.handleDownload)
+	mux.HandleFunc("PUT /v1/files/content", a.handleUpload)
+	mux.HandleFunc("GET /v1/files/hash", a.handleHash)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, agentproto.Error{Error: "not found"})
 	})
@@ -37,6 +49,7 @@ func (a *Agent) handleInfo(w http.ResponseWriter, r *http.Request) {
 		Interfaces:      []agentproto.Interface{},
 	}
 	info.Hostname, _ = os.Hostname()
+	info.FilesDir, info.PathSeparator = defaultFilesDir(), string(filepath.Separator)
 	if u, err := user.Current(); err == nil {
 		info.User = u.Username
 	}

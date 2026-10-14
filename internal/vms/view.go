@@ -38,6 +38,8 @@ type View struct {
 	ActionError     string             `json:"actionError,omitempty"`
 	Consoles        []console.Protocol `json:"consoles"`
 	AbsolutePointer bool               `json:"absolutePointer"`
+	// Serial is set when shells can use the VM's serial console.
+	Serial bool `json:"serial"`
 	// Agent is set for VMs with a Quicksand agent.
 	Agent     *AgentView `json:"agent,omitempty"`
 	Owner     string     `json:"owner,omitempty"`
@@ -50,6 +52,8 @@ type consoleInfo struct {
 	absolutePointer bool
 	// agent is whether the guest agent is enabled.
 	agent bool
+	// serial lists the VM's serial ports (serial0 ...).
+	serial []string
 }
 
 // Views lists VMs owned by ownerID (0 for everyone's, with owners named).
@@ -107,6 +111,8 @@ func (s *Service) View(ctx context.Context, vm store.VM) View {
 	v.Agent = s.agentView(ctx, vm, v.Power == "running")
 	if info, ok := s.consoleInfo(ctx, vm); ok {
 		v.Consoles, v.AbsolutePointer = info.protocols, info.absolutePointer
+		_, err := s.serialPort(ctx, vm)
+		v.Serial = err == nil
 	}
 	return v
 }
@@ -123,6 +129,11 @@ func (s *Service) consoleInfo(ctx context.Context, vm store.VM) (consoleInfo, bo
 		return consoleInfo{}, false
 	}
 	info = consoleInfo{protocols: []console.Protocol{console.VNC}, absolutePointer: pve.HasTablet(cfg), agent: agentEnabled(cfg)}
+	for _, port := range []string{"serial0", "serial1", "serial2", "serial3"} {
+		if _, ok := cfg[port]; ok {
+			info.serial = append(info.serial, port)
+		}
+	}
 	if pve.SupportsSpice(cfg) {
 		info.protocols = []console.Protocol{console.Spice, console.VNC}
 	}

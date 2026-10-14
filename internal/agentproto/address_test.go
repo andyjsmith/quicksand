@@ -81,3 +81,15 @@ func TestKeyRoundTrip(t *testing.T) {
 		t.Error("short private key accepted")
 	}
 }
+
+func TestErrorMessage(t *testing.T) {
+	for body, want := range map[string]string{
+		`{"error":"exec: \"nope\": not found"}`: `exec: "nope": not found`,
+		`plain text`:                            "plain text",
+		``:                                      "502 Bad Gateway",
+	} {
+		if got := errorMessage([]byte(body), "502 Bad Gateway"); got != want {
+			t.Errorf("errorMessage(%q) = %q, want %q", body, got, want)
+		}
+	}
+}

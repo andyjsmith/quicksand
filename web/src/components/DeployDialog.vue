@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { api, errorMessage, type Network, type Template, type VM } from '@/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -33,6 +34,7 @@ const name = ref('')
 const cores = ref(1)
 const memory = ref('1024')
 const networkId = ref('')
+const withAgent = ref(true)
 const error = ref<string>()
 const busy = ref(false)
 
@@ -50,6 +52,7 @@ watch(open, (o) => {
   name.value = ''
   cores.value = props.template.cores
   memory.value = String(props.template.memoryMiB)
+  withAgent.value = true
   networkId.value = (props.networks.find((n) => n.default) ?? props.networks[0])?.id ?? ''
   error.value = undefined
 })
@@ -65,6 +68,7 @@ async function submit() {
       cores: cores.value,
       memoryMiB: Number(memory.value),
       networkId: networkId.value,
+      agent: props.template.agent ? withAgent.value : undefined,
     })
     emit('deployed', vm)
     open.value = false
@@ -122,6 +126,16 @@ async function submit() {
               <SelectItem v-for="n in networks" :key="n.id" :value="n.id">{{ n.label }}</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div v-if="template.agent" class="flex items-start gap-2.5">
+          <Checkbox id="deploy-agent" v-model="withAgent" class="mt-0.5" />
+          <div class="flex flex-col gap-1">
+            <Label for="deploy-agent">Enable agent</Label>
+            <p class="text-muted-foreground text-xs">
+              Connects the VM to Quicksand's agent network for processes, files and commands. Turn it off to keep
+              the VM completely isolated from Quicksand.
+            </p>
+          </div>
         </div>
       </form>
       <DialogFooter>

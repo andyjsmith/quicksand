@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"os"
 	"regexp"
+	"slices"
 
 	"quicksand/internal/agentproto"
 )
@@ -115,6 +116,15 @@ type Template struct {
 	// Agent says the template has the Quicksand agent installed; clones
 	// get a NIC on the agent network.
 	Agent bool `json:"agent"`
+	// FilesDir is where file browsing (and shells) start in the guest, e.g.
+	// "C:\\Users\\user\\Desktop". Empty means the agent's default: the
+	// agent user's home on Linux, C:\Users\Public on Windows.
+	FilesDir string `json:"filesDir"`
+	// Serial enables shells over a serial console: the Proxmox serial
+	// port to use, "serial0" to "serial3". Deploys add it (as a socket)
+	// when the template lacks it. The guest must run a login prompt on
+	// the port (e.g. serial-getty@ttyS0 on Linux, or console=ttyS0).
+	Serial string `json:"serial"`
 }
 
 // Network is a bridge (optionally with a VLAN tag) deployments can attach
@@ -178,6 +188,9 @@ func (c *Config) validate() error {
 		}
 		if t.MaxMemoryMiB <= 0 {
 			t.MaxMemoryMiB = 32768
+		}
+		if t.Serial != "" && !slices.Contains([]string{"serial0", "serial1", "serial2", "serial3"}, t.Serial) {
+			return fmt.Errorf("templates[%d]: serial must be serial0 to serial3", i)
 		}
 	}
 	if len(c.Templates) > 0 && len(c.Networks) == 0 {

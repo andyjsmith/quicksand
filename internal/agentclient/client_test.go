@@ -44,6 +44,9 @@ func startAgent(t *testing.T) (*httptest.Server, *Client) {
 func host(srv *httptest.Server) string { return strings.TrimPrefix(srv.URL, "https://") }
 
 func TestInfoAndExec(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses Unix commands")
+	}
 	srv, c := startAgent(t)
 	ctx := context.Background()
 

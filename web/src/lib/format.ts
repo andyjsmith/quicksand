@@ -54,3 +54,29 @@ export function vmStatus(vm: VM): { label: string; dot: string } {
       return { label: 'Unknown', dot: 'bg-muted-foreground' }
   }
 }
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KiB', 'MiB', 'GiB', 'TiB']
+  let v = bytes / 1024
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`
+}
+
+export function formatDateTime(iso: string | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return isNaN(d.getTime()) || d.getFullYear() < 1980 ? '' : d.toLocaleString()
+}
+
+/** Formats CPU milliseconds as h:mm:ss. */
+export function formatCpuTime(ms: number): string {
+  const s = Math.floor(ms / 1000)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  return `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}

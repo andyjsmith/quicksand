@@ -6,18 +6,22 @@ import "time"
 const DefaultPort = 7070
 
 // Version is the agent protocol version, reported by /v1/info.
-const Version = "1"
+const Version = "2"
 
 // Info is returned by GET /v1/info.
 type Info struct {
-	ProtocolVersion string      `json:"protocolVersion"`
-	AgentVersion    string      `json:"agentVersion"`
-	Hostname        string      `json:"hostname"`
-	OS              string      `json:"os"`
-	Arch            string      `json:"arch"`
-	User            string      `json:"user"`
-	Time            time.Time   `json:"time"`
-	Interfaces      []Interface `json:"interfaces"`
+	ProtocolVersion string `json:"protocolVersion"`
+	AgentVersion    string `json:"agentVersion"`
+	Hostname        string `json:"hostname"`
+	OS              string `json:"os"`
+	Arch            string `json:"arch"`
+	User            string `json:"user"`
+	// FilesDir is where file browsing starts unless the server says otherwise.
+	FilesDir string `json:"filesDir"`
+	// PathSeparator is the guest's path separator, "/" or "\\".
+	PathSeparator string      `json:"pathSeparator"`
+	Time          time.Time   `json:"time"`
+	Interfaces    []Interface `json:"interfaces"`
 }
 
 type Interface struct {
@@ -59,4 +63,123 @@ const (
 // Error is the body of a non-2xx response.
 type Error struct {
 	Error string `json:"error"`
+}
+
+// ProcessList is returned by GET /v1/processes.
+type ProcessList struct {
+	Processes []Process `json:"processes"`
+	// Time the list was taken, and the guest's CPU count and memory, for
+	// turning CPU times into usage between two lists.
+	Time        time.Time `json:"time"`
+	NumCPU      int       `json:"numCPU"`
+	MemoryTotal uint64    `json:"memoryTotal"`
+}
+
+type Process struct {
+	PID  int    `json:"pid"`
+	PPID int    `json:"ppid"`
+	Name string `json:"name"`
+	// User owning the process; empty if it can't be read.
+	User string `json:"user,omitempty"`
+	// Command is the command line (Linux) or executable path (Windows).
+	Command string `json:"command,omitempty"`
+	// Memory is the resident set (working set on Windows) in bytes.
+	Memory uint64 `json:"memory"`
+	// CPUTimeMs is user plus system CPU time used so far.
+	CPUTimeMs int64     `json:"cpuTimeMs"`
+	Threads   int       `json:"threads,omitempty"`
+	Started   time.Time `json:"started,omitzero"`
+}
+
+// KillRequest is the body of POST /v1/processes/{pid}/kill. Force kills
+// immediately; otherwise Linux processes get SIGTERM. Windows processes
+// are always terminated.
+type KillRequest struct {
+	Force bool `json:"force"`
+}
+
+// File paths in the files API are absolute guest paths, or relative to a
+// base directory (the "base" query parameter, defaulting to the agent's
+// Info.FilesDir). On Windows the path "/" lists the drives.
+
+// FileList is returned by GET /v1/files.
+type FileList struct {
+	// Path is the listed directory, absolute and cleaned.
+	Path string `json:"path"`
+	// Parent is the directory above Path, empty at the top.
+	Parent  string      `json:"parent"`
+	Entries []FileEntry `json:"entries"`
+}
+
+type FileEntry struct {
+	Name string `json:"name"`
+	// Path is the entry's absolute path.
+	Path    string    `json:"path"`
+	Dir     bool      `json:"dir"`
+	Symlink bool      `json:"symlink,omitempty"`
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"modTime,omitzero"`
+	Mode    string    `json:"mode,omitempty"`
+}
+
+// ShellRequest starts a command over GET /v1/shell (a stream, see
+// AcceptStream; JSON in the "request" query parameter). The stream then
+// carries frames (see frames.go).
+type ShellRequest struct {
+	// Command runs through the guest's shell (sh -c, cmd /c); empty starts
+	// an interactive shell (a login shell; on Windows PowerShell with a
+	// terminal, cmd.exe without).
+	Command string `json:"command,omitempty"`
+	// Shell is the shell program to use instead of the default: a name
+	// looked up in PATH or a path, e.g. "cmd", "pwsh" or "zsh". Commands
+	// run through it with -c, or /c and -Command for cmd and PowerShell.
+	Shell string `json:"shell,omitempty"`
+	// PTY gives the command a terminal of Cols×Rows; otherwise it gets
+	// pipes and stdout and stderr are kept apart.
+	PTY  bool   `json:"pty,omitempty"`
+	Cols int    `json:"cols,omitempty"`
+	Rows int    `json:"rows,omitempty"`
+	Term string `json:"term,omitempty"`
+	// Dir is the working directory; empty means Info.FilesDir.
+	Dir string `json:"dir,omitempty"`
+}
+
+// ShellExit is the payload of the final FrameExit.
+type ShellExit struct {
+	// Code is -1 if the command couldn't run or was killed.
+	Code  int    `json:"code"`
+	Error string `json:"error,omitempty"`
+}
+
+// Resize is the payload of FrameResize.
+type Resize struct {
+	Cols int `json:"cols"`
+	Rows int `json:"rows"`
+}
+
+// ConnectionList is returned by GET /v1/connections.
+type ConnectionList struct {
+	Connections []Connection `json:"connections"`
+}
+
+// Connection is a TCP or UDP socket, like a netstat line.
+type Connection struct {
+	// Proto is tcp, tcp6, udp or udp6.
+	Proto  string `json:"proto"`
+	Local  string `json:"local"`
+	Remote string `json:"remote,omitempty"`
+	// State is the TCP state (LISTEN, ESTABLISHED, ...); empty for UDP.
+	State string `json:"state,omitempty"`
+	// PID owning the socket, 0 if unknown.
+	PID         int    `json:"pid,omitempty"`
+	ProcessName string `json:"processName,omitempty"`
+}
+
+// FileHashes is returned by GET /v1/files/hash.
+type FileHashes struct {
+	Path   string `json:"path"`
+	Size   int64  `json:"size"`
+	MD5    string `json:"md5"`
+	SHA1   string `json:"sha1"`
+	SHA256 string `json:"sha256"`
 }

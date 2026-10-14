@@ -91,6 +91,13 @@ Recommendations for the template VM itself:
 - **Firewall**: keep the template's VM firewall rules empty; clones inherit
   them.
 - **Quicksand agent** (optional): see section 6 and [agent.md](agent.md).
+- **Serial console shell** (optional, Linux): set `"serial": "serial0"` on
+  the template in `config.json` to offer shells over the serial console, in
+  the web UI's Shell tab and with `qs shell`, for VMs without a connected
+  agent (or on request). Deploys add the port as a socket if the template
+  lacks it. The guest needs a login prompt on it: on Linux, enable
+  `serial-getty@ttyS0.service` (or boot with `console=ttyS0`). Windows has
+  no serial login, so this doesn't help Windows templates.
 
 ## 5. Networks users choose from
 

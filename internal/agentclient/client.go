@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,12 +16,17 @@ import (
 	"strconv"
 	"time"
 
+	"golang.org/x/net/proxy"
+
 	"quicksand/internal/agentproto"
 )
 
 type Client struct {
 	http *http.Client
 	port int
+	// tls and dial open stream connections, which bypass the HTTP client.
+	tls  *tls.Config
+	dial func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // Options configures a Client.
@@ -45,17 +51,25 @@ func New(opts Options) (*Client, error) {
 		IdleConnTimeout:     60 * time.Second,
 		ForceAttemptHTTP2:   true,
 	}
+	dial := transport.DialContext
 	if opts.Proxy != "" {
 		u, err := url.Parse(opts.Proxy)
 		if err != nil || u.Scheme != "socks5" && u.Scheme != "socks5h" {
 			return nil, fmt.Errorf("agent proxy must be a socks5:// URL")
 		}
 		transport.Proxy = http.ProxyURL(u)
+		d, err := proxy.FromURL(u, &net.Dialer{Timeout: 5 * time.Second})
+		if err != nil {
+			return nil, err
+		}
+		dial = d.(proxy.ContextDialer).DialContext
 	}
 	if opts.Port == 0 {
 		opts.Port = agentproto.DefaultPort
 	}
-	return &Client{http: &http.Client{Transport: transport}, port: opts.Port}, nil
+	streamTLS := tlsConfig.Clone()
+	streamTLS.NextProtos = []string{"http/1.1"}
+	return &Client{http: &http.Client{Transport: transport}, port: opts.Port, tls: streamTLS, dial: dial}, nil
 }
 
 // Error is an error response from an agent.
@@ -80,10 +94,14 @@ func (c *Client) Exec(ctx context.Context, host string, req agentproto.ExecReque
 	return resp, err
 }
 
-func (c *Client) do(ctx context.Context, method, host, path string, body, out any) error {
+func (c *Client) hostPort(host string) string {
 	if _, _, err := net.SplitHostPort(host); err != nil {
-		host = net.JoinHostPort(host, strconv.Itoa(c.port))
+		return net.JoinHostPort(host, strconv.Itoa(c.port))
 	}
+	return host
+}
+
+func (c *Client) do(ctx context.Context, method, host, path string, body, out any) error {
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -92,31 +110,45 @@ func (c *Client) do(ctx context.Context, method, host, path string, body, out an
 		}
 		r = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "https://"+host+path, r)
+	req, err := http.NewRequestWithContext(ctx, method, "https://"+c.hostPort(host)+path, r)
 	if err != nil {
 		return err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+	if out == nil {
+		return nil
+	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 3*agentproto.MaxExecOutput))
 	if err != nil {
 		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		var e agentproto.Error
-		if json.Unmarshal(data, &e) != nil || e.Error == "" {
-			e.Error = resp.Status
-		}
-		return &Error{Status: resp.StatusCode, Message: e.Error}
 	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return errors.New("agent: invalid response")
 	}
 	return nil
+}
+
+// send performs req, turning error statuses into *Error.
+func (c *Client) send(req *http.Request) (*http.Response, error) {
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		var e agentproto.Error
+		if json.Unmarshal(data, &e) != nil || e.Error == "" {
+			e.Error = resp.Status
+		}
+		return nil, &Error{Status: resp.StatusCode, Message: e.Error}
+	}
+	return resp, nil
 }

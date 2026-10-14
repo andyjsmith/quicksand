@@ -118,6 +118,9 @@ type DeployRequest struct {
 	Cores      int    `json:"cores"`
 	MemoryMiB  int    `json:"memoryMiB"`
 	NetworkID  string `json:"networkId"`
+	// Agent, for templates with the agent, connects the VM to the agent
+	// network (default true). False deploys it without the agent NIC.
+	Agent *bool `json:"agent"`
 }
 
 var nameInvalid = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -179,7 +182,8 @@ func (s *Service) Deploy(ctx context.Context, owner store.User, req DeployReques
 	}
 	s.publish(vm)
 	slog.Info("deploying vm", "id", vm.ID, "vmid", vm.VMID, "template", tmpl.ID, "owner", owner.Username)
-	s.startJob(vm.ID, func(ctx context.Context) { s.runDeploy(ctx, vm, tmpl, network, owner) })
+	withAgent := tmpl.Agent && s.cfg.Agent != nil && (req.Agent == nil || *req.Agent)
+	s.startJob(vm.ID, func(ctx context.Context) { s.runDeploy(ctx, vm, tmpl, network, owner, withAgent) })
 	return vm, nil
 }
 
@@ -214,7 +218,7 @@ func (s *Service) TemplateDefaults(ctx context.Context, tmpl config.Template) (T
 	return d, nil
 }
 
-func (s *Service) runDeploy(ctx context.Context, vm store.VM, tmpl config.Template, network config.Network, owner store.User) {
+func (s *Service) runDeploy(ctx context.Context, vm store.VM, tmpl config.Template, network config.Network, owner store.User, hasAgent bool) {
 	progress := func(step string, p float64) { s.progress(vm, store.VMDeploying, step, p) }
 
 	// 1. Clone (0-70%). Full clones log per-disk progress; linked clones are quick.
@@ -240,7 +244,6 @@ func (s *Service) runDeploy(ctx context.Context, vm store.VM, tmpl config.Templa
 
 	// 2. Configure (70-85%).
 	progress("Configuring hardware", 0.7)
-	hasAgent := tmpl.Agent && s.cfg.Agent != nil
 	cfg, err := s.pve.VMConfig(ctx, vm.Node, vm.VMID)
 	if err != nil {
 		s.fail(vm, fmt.Errorf("read config: %w", err))
@@ -265,6 +268,9 @@ func (s *Service) runDeploy(ctx context.Context, vm store.VM, tmpl config.Templa
 			return
 		}
 		set[agentNIC] = nic
+	}
+	if _, ok := cfg[tmpl.Serial]; tmpl.Serial != "" && !ok {
+		set[tmpl.Serial] = "socket"
 	}
 	if network.Isolated() {
 		// A NIC without a bridge would get QEMU user-mode networking (NAT

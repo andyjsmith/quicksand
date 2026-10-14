@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"quicksand/internal/agentclient"
 	"quicksand/internal/agentproto"
 	"quicksand/internal/pve"
 	"quicksand/internal/store"
@@ -108,13 +109,41 @@ func (s *Service) AgentInfo(ctx context.Context, vm store.VM) (agentproto.Info, 
 
 // AgentExec runs a command in a VM through its agent.
 func (s *Service) AgentExec(ctx context.Context, vm store.VM, req agentproto.ExecRequest) (agentproto.ExecResponse, error) {
+	g, err := s.GuestAgent(vm)
+	if err != nil {
+		return agentproto.ExecResponse{}, err
+	}
+	return g.Exec(ctx, g.Host, req)
+}
+
+// GuestAgent is a deployed VM's agent, ready to use.
+type GuestAgent struct {
+	*agentclient.Client
+	Host string
+	// FilesDir is the template's starting directory for files and shells,
+	// empty for the agent's default.
+	FilesDir string
+}
+
+// GuestAgent returns the agent of a ready VM.
+func (s *Service) GuestAgent(vm store.VM) (GuestAgent, error) {
 	if vm.AgentIP == "" || s.agents == nil {
-		return agentproto.ExecResponse{}, ErrNoAgent
+		return GuestAgent{}, ErrNoAgent
 	}
 	if vm.State != store.VMReady {
-		return agentproto.ExecResponse{}, ErrNotReady
+		return GuestAgent{}, ErrNotReady
 	}
-	return s.agents.Exec(ctx, vm.AgentIP, req)
+	g := GuestAgent{Client: s.agents, Host: vm.AgentIP}
+	if t, ok := s.cfg.Template(vm.TemplateID); ok {
+		g.FilesDir = t.FilesDir
+	}
+	return g, nil
+}
+
+// File names a guest path for the agent: absolute, or relative to the
+// template's starting directory.
+func (g GuestAgent) File(path string) agentclient.FileRef {
+	return agentclient.FileRef{Base: g.FilesDir, Path: path}
 }
 
 // agentView reports a running VM's agent, probing it at most every

@@ -27,6 +27,8 @@ type templateView struct {
 	MemoryMiB    int    `json:"memoryMiB"`
 	MaxCores     int    `json:"maxCores"`
 	MaxMemoryMiB int    `json:"maxMemoryMiB"`
+	// Agent says deployments can have the Quicksand agent.
+	Agent bool `json:"agent"`
 	// Error is set when the template can't be read from Proxmox.
 	Error string `json:"error,omitempty"`
 }
@@ -36,7 +38,7 @@ func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
 	for _, t := range s.cfg.Templates {
 		v := templateView{
 			ID: t.ID, Name: t.Name, Description: t.Description, OS: t.OS,
-			MaxCores: t.MaxCores, MaxMemoryMiB: t.MaxMemoryMiB,
+			MaxCores: t.MaxCores, MaxMemoryMiB: t.MaxMemoryMiB, Agent: t.Agent && s.cfg.Agent != nil,
 		}
 		d, err := s.vms.TemplateDefaults(r.Context(), t)
 		if err != nil {

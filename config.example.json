@@ -35,7 +35,9 @@
       "node": "pve",
       "name": "Debian 13",
       "os": "linux",
-      "agent": true
+      "agent": true,
+      "filesDir": "/root",
+      "serial": "serial0"
     }
   ],
   "networks": [

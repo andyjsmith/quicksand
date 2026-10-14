@@ -17,6 +17,8 @@ export interface Template {
   memoryMiB: number
   maxCores: number
   maxMemoryMiB: number
+  /** Deployments can have the Quicksand agent. */
+  agent: boolean
   /** Set when the template can't be read from Proxmox. */
   error?: string
 }
@@ -58,6 +60,8 @@ export interface VM {
   actionError?: string
   /** Supported console protocols, preferred first. */
   consoles: ConsoleProtocol[]
+  /** Shells can use the VM's serial console. */
+  serial: boolean
   /** False when the guest has no USB tablet, so a VNC mouse is relative. */
   absolutePointer: boolean
   /** Set for VMs with a Quicksand agent. */
@@ -109,6 +113,68 @@ export interface DeployRequest {
   cores: number
   memoryMiB: number
   networkId: string
+  /** For templates with the agent: false deploys without the agent NIC. */
+  agent?: boolean
+}
+
+export interface ProcessList {
+  processes: GuestProcess[]
+  time: string
+  numCPU: number
+  memoryTotal: number
+}
+
+export interface GuestProcess {
+  pid: number
+  ppid: number
+  name: string
+  user?: string
+  /** Command line (Linux) or executable path (Windows). */
+  command?: string
+  /** Resident set / working set in bytes. */
+  memory: number
+  cpuTimeMs: number
+  threads?: number
+  started?: string
+}
+
+export interface ConnectionList {
+  connections: GuestConnection[]
+}
+
+export interface GuestConnection {
+  proto: 'tcp' | 'tcp6' | 'udp' | 'udp6'
+  local: string
+  remote?: string
+  state?: string
+  pid?: number
+  processName?: string
+}
+
+export interface FileList {
+  /** The listed directory; "/" on Windows is the list of drives. */
+  path: string
+  /** The directory above, empty at the top. */
+  parent: string
+  entries: FileEntry[]
+}
+
+export interface FileEntry {
+  name: string
+  path: string
+  dir: boolean
+  symlink?: boolean
+  size: number
+  modTime?: string
+  mode?: string
+}
+
+export interface FileHashes {
+  path: string
+  size: number
+  md5: string
+  sha1: string
+  sha256: string
 }
 
 export class ApiError extends Error {
@@ -167,6 +233,33 @@ export const api = {
   createConsole: (id: string, protocol: ConsoleProtocol) =>
     request<ConsoleSession>('POST', `${vmPath(id)}/console`, { protocol }),
 
+  processes: (id: string) => request<ProcessList>('GET', `${vmPath(id)}/processes`),
+  kill: (id: string, pid: number, force: boolean) =>
+    request<void>('POST', `${vmPath(id)}/processes/${pid}/kill`, { force }),
+  connections: (id: string) => request<ConnectionList>('GET', `${vmPath(id)}/connections`),
+  files: (id: string, path = '') => request<FileList>('GET', `${vmPath(id)}/files?${new URLSearchParams({ path })}`),
+  mkdir: (id: string, path: string) =>
+    request<FileEntry>('POST', `${vmPath(id)}/files/mkdir?${new URLSearchParams({ path })}`),
+  deleteFile: (id: string, path: string, recursive: boolean) =>
+    request<void>('DELETE', `${vmPath(id)}/files?${new URLSearchParams({ path, recursive: recursive ? '1' : '0' })}`),
+  hashFile: (id: string, path: string) =>
+    request<FileHashes>('GET', `${vmPath(id)}/files/hash?${new URLSearchParams({ path })}`),
+  /**
+   * The websocket URL of a terminal shell: the agent's (shell, or by default
+   * PowerShell on Windows and a login shell elsewhere) or the serial console's.
+   */
+  shellUrl: (id: string, source: 'agent' | 'serial', cols: number, rows: number, shell = '') => {
+    const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const q = new URLSearchParams({ pty: '1', cols: String(cols), rows: String(rows), term: 'xterm-256color' })
+    // The shell program for agent shells; empty means the guest's default.
+    if (shell && source === 'agent') q.set('shell', shell)
+    return `${scheme}//${location.host}${vmPath(id)}/${source === 'serial' ? 'serial' : 'shell'}?${q}`
+  },
+  /** A URL that downloads a guest file (or a directory as a zip). */
+  downloadUrl: (id: string, path: string) => `${vmPath(id)}/files/content?${new URLSearchParams({ path })}`,
+  upload: (id: string, path: string, file: Blob, overwrite: boolean, onProgress?: (fraction: number) => void) =>
+    upload(`${vmPath(id)}/files/content?${new URLSearchParams({ path, overwrite: overwrite ? '1' : '0' })}`, file, onProgress),
+
   agentSettings: () => request<AgentSettings>('GET', '/api/admin/agent'),
   users: () => request<User[]>('GET', '/api/admin/users'),
   createUser: (username: string, password: string, isAdmin: boolean) =>
@@ -174,6 +267,34 @@ export const api = {
   updateUser: (id: number, changes: { password?: string; isAdmin?: boolean }) =>
     request<User>('PATCH', `/api/admin/users/${id}`, changes),
   deleteUser: (id: number) => request<void>('DELETE', `/api/admin/users/${id}`),
+}
+
+/** PUTs a file with upload progress, which fetch can't report. */
+function upload(url: string, file: Blob, onProgress?: (fraction: number) => void): Promise<FileEntry> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', url)
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream')
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded / e.total)
+    }
+    xhr.onload = () => {
+      let data: { error?: string } = {}
+      try {
+        data = JSON.parse(xhr.responseText)
+      } catch {
+        // Not JSON.
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data as FileEntry)
+      else {
+        if (xhr.status === 401) onUnauthorized?.()
+        reject(new ApiError(xhr.status, data.error ?? xhr.statusText))
+      }
+    }
+    xhr.onerror = () => reject(new ApiError(0, 'The upload failed (network error).'))
+    xhr.onabort = () => reject(new ApiError(0, 'Upload cancelled.'))
+    xhr.send(file)
+  })
 }
 
 /** Decodes base64 command output as UTF-8 (invalid bytes become U+FFFD). */

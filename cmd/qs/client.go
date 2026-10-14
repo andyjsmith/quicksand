@@ -1,0 +1,242 @@
+package main
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"quicksand/internal/agentproto"
+)
+
+// settings is what "qs login" saves, in the user's config directory.
+type settings struct {
+	Server string `json:"server"`
+	// Session is the Quicksand session cookie value.
+	Session string `json:"session"`
+	// Fingerprint pins the server certificate's SHA-256 when it isn't
+	// trusted by the system (e.g. Quicksand's self-signed certificate).
+	Fingerprint string `json:"fingerprint,omitempty"`
+}
+
+func settingsPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "quicksand", "cli.json"), nil
+}
+
+func loadSettings() (settings, error) {
+	var s settings
+	p, err := settingsPath()
+	if err != nil {
+		return s, err
+	}
+	b, err := os.ReadFile(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return s, errors.New(`not signed in; run "qs login <server URL>"`)
+	}
+	if err != nil {
+		return s, err
+	}
+	return s, json.Unmarshal(b, &s)
+}
+
+func saveSettings(s settings) error {
+	p, err := settingsPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
+	b, _ := json.MarshalIndent(s, "", "  ")
+	return os.WriteFile(p, b, 0o600)
+}
+
+// client calls the Quicksand API as the signed-in user.
+type client struct {
+	settings
+	http *http.Client
+}
+
+func newClient(s settings) *client {
+	return &client{settings: s, http: &http.Client{Transport: transport(s.Fingerprint)}}
+}
+
+// transport verifies the server certificate against the system roots, or
+// against a pinned fingerprint if one is set.
+func transport(fingerprint string) *http.Transport {
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if fingerprint != "" {
+		cfg.InsecureSkipVerify = true
+		cfg.VerifyPeerCertificate = func(raw [][]byte, _ [][]*x509.Certificate) error {
+			if len(raw) == 0 || certFingerprint(raw[0]) != fingerprint {
+				return errors.New("the server certificate doesn't match the pinned fingerprint; run \"qs login\" again if it was replaced")
+			}
+			return nil
+		}
+	}
+	return &http.Transport{
+		TLSClientConfig:     cfg,
+		DialContext:         (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+}
+
+func certFingerprint(der []byte) string {
+	sum := sha256.Sum256(der)
+	return strings.ToUpper(hex.EncodeToString(sum[:]))
+}
+
+// apiError is an error response from the server.
+type apiError struct {
+	Status  int
+	Message string
+}
+
+func (e *apiError) Error() string {
+	if e.Status == http.StatusUnauthorized {
+		return `your session has ended; run "qs login" again`
+	}
+	return e.Message
+}
+
+// do sends a JSON request and decodes a JSON response into out (if not nil).
+func (c *client) do(method, path string, body, out any) error {
+	var r io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		r = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(method, strings.TrimRight(c.Server, "/")+path, r)
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.Session != "" {
+		req.AddCookie(&http.Cookie{Name: "quicksand_session", Value: c.Session})
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		var e struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(data, &e) != nil || e.Error == "" {
+			e.Error = resp.Status
+		}
+		return &apiError{Status: resp.StatusCode, Message: e.Error}
+	}
+	if out != nil && len(data) > 0 {
+		return json.Unmarshal(data, out)
+	}
+	return nil
+}
+
+// login signs in and returns the session cookie.
+func (c *client) login(username, password string) (string, error) {
+	b, _ := json.Marshal(map[string]string{"username": username, "password": password})
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(c.Server, "/")+"/api/auth/login", bytes.NewReader(b))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		var e struct {
+			Error string `json:"error"`
+		}
+		json.NewDecoder(resp.Body).Decode(&e)
+		if e.Error == "" {
+			e.Error = resp.Status
+		}
+		return "", fmt.Errorf("sign in failed: %s", e.Error)
+	}
+	for _, ck := range resp.Cookies() {
+		if ck.Name == "quicksand_session" {
+			return ck.Value, nil
+		}
+	}
+	return "", errors.New("the server didn't return a session")
+}
+
+// stream opens a stream (see agentproto.DialStream) to an API path, such
+// as a VM's shell.
+func (c *client) stream(path string) (net.Conn, error) {
+	u, err := url.Parse(strings.TrimRight(c.Server, "/") + path)
+	if err != nil {
+		return nil, err
+	}
+	addr := u.Host
+	if u.Port() == "" {
+		port := "443"
+		if u.Scheme == "http" {
+			port = "80"
+		}
+		addr = net.JoinHostPort(u.Hostname(), port)
+	}
+	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme == "https" {
+		cfg := c.http.Transport.(*http.Transport).TLSClientConfig.Clone()
+		cfg.ServerName = u.Hostname()
+		tc := tls.Client(conn, cfg)
+		tc.SetDeadline(time.Now().Add(10 * time.Second))
+		if err := tc.Handshake(); err != nil {
+			conn.Close()
+			return nil, err
+		}
+		conn = tc
+	}
+	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	req.AddCookie(&http.Cookie{Name: "quicksand_session", Value: c.Session})
+	// The server answers once the agent has (agentTimeout there).
+	conn.SetDeadline(time.Now().Add(45 * time.Second))
+	s, err := agentproto.DialStream(conn, req)
+	if err != nil {
+		conn.Close()
+		var se *agentproto.StatusError
+		if errors.As(err, &se) {
+			return nil, &apiError{Status: se.Status, Message: se.Message}
+		}
+		return nil, err
+	}
+	conn.SetDeadline(time.Time{})
+	return s, nil
+}
