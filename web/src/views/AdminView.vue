@@ -21,7 +21,6 @@ import ExpiryBadge from '@/components/ExpiryBadge.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -374,7 +373,9 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" @click="destroyVM">Destroy</AlertDialogAction>
+          <!-- Not AlertDialogAction: closing the dialog first would clear the
+               machine before destroyVM reads it. -->
+          <Button variant="destructive" @click="destroyVM">Destroy</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
@@ -389,7 +390,7 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" @click="deleteUser">Delete</AlertDialogAction>
+          <Button variant="destructive" @click="deleteUser">Delete</Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
