@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-const snapshotUsage = `usage: qs snapshot take [--disk-only] [--force] <vm>
-       qs snapshot revert [--force] <vm>
-       qs snapshot delete [--force] <vm>`
+const snapshotUsage = `usage: qs snapshot take [-disk-only] [-force] <vm>
+       qs snapshot revert [-force] <vm>
+       qs snapshot delete [-force] <vm>`
 
 // cmdSnapshot manages a VM's one snapshot: take (replacing any), revert to
 // it (keeping it) or delete it.
@@ -37,7 +37,7 @@ func snapshotTake(args []string) error {
 	diskOnly := fs.Bool("disk-only", false, "skip the memory (reverting then leaves the VM stopped)")
 	force := fs.Bool("force", false, "replace an existing snapshot without asking")
 	fs.Parse(reorder(args, nil))
-	c, v, err := vmArg(fs.Args(), "qs snapshot take [--disk-only] [--force] <vm>")
+	c, v, err := vmArg(fs.Args(), "qs snapshot take [-disk-only] [-force] <vm>")
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func snapshotRevert(args []string) error {
 	fs := flag.NewFlagSet("snapshot revert", flag.ExitOnError)
 	force := fs.Bool("force", false, "don't ask for confirmation")
 	fs.Parse(reorder(args, nil))
-	c, v, err := vmArg(fs.Args(), "qs snapshot revert [--force] <vm>")
+	c, v, err := vmArg(fs.Args(), "qs snapshot revert [-force] <vm>")
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func snapshotDelete(args []string) error {
 	fs := flag.NewFlagSet("snapshot delete", flag.ExitOnError)
 	force := fs.Bool("force", false, "don't ask for confirmation")
 	fs.Parse(reorder(args, nil))
-	c, v, err := vmArg(fs.Args(), "qs snapshot delete [--force] <vm>")
+	c, v, err := vmArg(fs.Args(), "qs snapshot delete [-force] <vm>")
 	if err != nil {
 		return err
 	}

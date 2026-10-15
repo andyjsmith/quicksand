@@ -14,7 +14,8 @@ Account:
   logout                                     sign out and forget the session
   whoami                                     show who you are signed in as
 
-Machines (a VM is named by its name, Proxmox VM ID or Quicksand ID):
+Machines (a VM is named by its name, Proxmox VM ID or Quicksand ID, or by its
+template's ID while it's your only VM of that template):
   ls [-a]                                    list your VMs (-a: everyone's, admins only)
   templates                                  list templates you can deploy
   networks                                   list networks
@@ -23,10 +24,10 @@ Machines (a VM is named by its name, Proxmox VM ID or Quicksand ID):
   start | shutdown | stop | reboot | reset | suspend | resume <vm>
   destroy [-y] <vm>                          destroy a VM and its disks
   extend <vm>                                push back a VM's expiry
-  snapshot take [--disk-only] [--force] <vm> snapshot a VM (with its memory unless --disk-only),
-                                             replacing its snapshot (asks first, unless --force)
-  snapshot revert [--force] <vm>             return a VM to its snapshot, which is kept
-  snapshot delete [--force] <vm>             delete a VM's snapshot
+  snapshot take [-disk-only] [-force] <vm>   snapshot a VM (with its memory unless -disk-only),
+                                             replacing its snapshot (asks first, unless -force)
+  snapshot revert [-force] <vm>              return a VM to its snapshot, which is kept
+  snapshot delete [-force] <vm>              delete a VM's snapshot
 
 Agent:
   ps <vm>                                    list the guest's processes

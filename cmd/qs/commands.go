@@ -23,6 +23,7 @@ import (
 type vm struct {
 	ID           string  `json:"id"`
 	Name         string  `json:"name"`
+	TemplateID   string  `json:"templateId"`
 	TemplateName string  `json:"templateName"`
 	VMID         int     `json:"vmid"`
 	Cores        int     `json:"cores"`
@@ -465,6 +466,7 @@ func findVM(c *client, ref string) (vm, error) {
 	// Administrators can manage everyone's VMs; others get 403 here.
 	var list []vm
 	err := c.do("GET", "/api/vms?all=1", nil, &list)
+	everyone := err == nil
 	var ae *apiError
 	if errors.As(err, &ae) && ae.Status == 403 {
 		err = c.do("GET", "/api/vms", nil, &list)
@@ -490,9 +492,39 @@ func findVM(c *client, ref string) (vm, error) {
 	case 1:
 		return matches[0], nil
 	case 0:
-		return vm{}, fmt.Errorf("no VM %q (see \"qs ls\")", ref)
+		return vmOfTemplate(c, list, ref, everyone)
 	}
 	return vm{}, fmt.Errorf("%d VMs are named %q; use the VM ID instead", len(matches), ref)
+}
+
+// vmOfTemplate finds your one VM of a template, so that a template's ID
+// ("win10") names it while you have just the one. everyone says the list
+// holds everyone's VMs (an administrator's), of which only yours count.
+func vmOfTemplate(c *client, list []vm, template string, everyone bool) (vm, error) {
+	if everyone {
+		var me struct {
+			Username string `json:"username"`
+		}
+		if err := c.do("GET", "/api/auth/me", nil, &me); err != nil {
+			return vm{}, err
+		}
+		list = slices.DeleteFunc(list, func(v vm) bool { return v.Owner != me.Username })
+	}
+	var names []string
+	var match vm
+	for _, v := range list {
+		if v.TemplateID == template && v.State != "destroying" {
+			names = append(names, v.Name)
+			match = v
+		}
+	}
+	switch len(names) {
+	case 0:
+		return vm{}, fmt.Errorf("no VM %q (see \"qs ls\")", template)
+	case 1:
+		return match, nil
+	}
+	return vm{}, fmt.Errorf("you have %d %s VMs (%s); name one", len(names), template, strings.Join(names, ", "))
 }
 
 func vmArg(args []string, usage string) (*client, vm, error) {
