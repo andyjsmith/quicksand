@@ -838,6 +838,12 @@ SpiceDisplayConn.prototype.process_channel_message = function(msg)
         {
             if (this.surface_live(doomed))
                 this.delete_surface(m.surface_id);
+            /* The guest changing resolution destroys the primary surface and
+               creates a new one with the same id, which takes effect at once
+               while this ran queued: the id now names the new surface, but the
+               old canvas must still go, or each resize leaves one behind. */
+            else if (doomed.canvas && doomed.canvas.parentNode)
+                doomed.canvas.parentNode.removeChild(doomed.canvas);
         });
         return true;
     }
@@ -1005,14 +1011,17 @@ SpiceDisplayConn.prototype.process_channel_message = function(msg)
 
 SpiceDisplayConn.prototype.delete_surface = function(surface_id)
 {
-    var canvas = document.getElementById("spice_surface_" + surface_id);
+    /* The surface's own canvas: during a resize, two canvases share its id. */
+    var surface = this.surfaces ? this.surfaces[surface_id] : undefined;
+    var canvas = surface && surface.canvas ? surface.canvas : document.getElementById("spice_surface_" + surface_id);
     if (Utils.DUMP_CANVASES && this.parent.dump_id)
         document.getElementById(this.parent.dump_id).removeChild(canvas);
     if (this.primary_surface == surface_id)
     {
         this.unhook_events();
         this.primary_surface = undefined;
-        document.getElementById(this.parent.screen_id).removeChild(canvas);
+        if (canvas && canvas.parentNode)
+            canvas.parentNode.removeChild(canvas);
     }
 
     delete this.surfaces[surface_id];

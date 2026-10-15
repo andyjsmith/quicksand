@@ -109,7 +109,10 @@ export class SpiceDriver implements ConsoleDriver {
     // spice-html5 adds the display canvas to the screen once the display
     // channel is up; track it to size the display.
     const mutations = new MutationObserver(() => {
-      const canvas = screen.querySelector('canvas')
+      // The newest canvas: while the guest changes resolution, the old one
+      // lingers until its surface is destroyed.
+      const canvas = screen.querySelector<HTMLCanvasElement>('canvas:last-of-type')
+      for (const c of screen.querySelectorAll('canvas')) c.style.display = c === canvas ? '' : 'none'
       if (canvas) {
         this.layout?.setDisplaySize({ width: canvas.width, height: canvas.height })
         // spice-html5 never calls its onsuccess callback, so the primary
@@ -186,11 +189,11 @@ export class SpiceDriver implements ConsoleDriver {
   }
 
   focus(): void {
-    this.screen?.querySelector('canvas')?.focus()
+    this.screen?.querySelector<HTMLCanvasElement>('canvas:last-of-type')?.focus()
   }
 
   snapshot(): HTMLCanvasElement | null {
-    return this.connected ? (this.screen?.querySelector('canvas') ?? null) : null
+    return this.connected ? (this.screen?.querySelector<HTMLCanvasElement>('canvas:last-of-type') ?? null) : null
   }
 
   sendKeys(codes: string[]): Promise<void> {

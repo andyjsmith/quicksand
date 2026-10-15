@@ -14,6 +14,11 @@
   pointer is within 8 px of the left edge. Windows guests send a hide there
   and never re-show the pointer until its shape changes.
 - `cursor.js`: apply the cursor shape carried by `SPICE_MSG_CURSOR_INIT`.
+- `display.js`: remove a destroyed surface's own canvas even when a surface
+  with the same id was created while the destroy waited in the draw queue
+  (what a guest resolution change does), and find canvases through their
+  surface rather than by element id. Otherwise each resize could leave the old
+  canvas in the page, stacked under the new one.
 - `playback.js`: hand playback messages to `parent.playback_sink` when the
   application sets one. Quicksand decodes the Opus packets with WebCodecs and
   plays them with Web Audio, because Firefox cannot play the live WebM/MSE
