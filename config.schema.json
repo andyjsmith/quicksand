@@ -146,6 +146,42 @@
     "quota": {
       "$ref": "#/definitions/quota",
       "description": "Limits how many VMs exist at once across all templates. Unset limits are unlimited."
+    },
+    "links": {
+      "type": "object",
+      "description": "Enables link networks: private networks users join their VMs into. Each is a VLAN on bridge; each linked VM gets an extra NIC there, unfiltered, with an address from subnet that its agent sets (or the user, without an agent). See docs/proxmox-setup.md.",
+      "additionalProperties": false,
+      "required": ["bridge", "vlans", "subnet"],
+      "properties": {
+        "bridge": {
+          "type": "string",
+          "description": "A VLAN-aware bridge with no uplink, such as the internal bridge the agent VNet is on (vmbr9), so link networks reach nothing else.",
+          "examples": ["vmbr9"]
+        },
+        "vlans": {
+          "type": "object",
+          "description": "VLAN tags link networks are given, one each. Must not include the agent network's tag (Quicksand refuses to start if it does).",
+          "additionalProperties": false,
+          "required": ["from", "to"],
+          "properties": {
+            "from": { "type": "integer", "minimum": 2, "maximum": 4094, "description": "First tag (inclusive)." },
+            "to": { "type": "integer", "minimum": 2, "maximum": 4094, "description": "Last tag (inclusive)." }
+          }
+        },
+        "subnet": {
+          "type": "string",
+          "description": "Subnet linked VMs are addressed from. A VM keeps its address while it exists, through merges. Must not overlap the agent subnet.",
+          "examples": ["10.98.0.0/16"]
+        },
+        "macPrefix": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){2}$",
+          "default": "02:51:54",
+          "description": "First three bytes of link NIC MACs; must differ from the agent network's."
+        },
+        "nic": { "type": "string", "default": "net2", "description": "VM network device used for links." },
+        "model": { "type": "string", "default": "e1000", "description": "NIC model (e1000 needs no guest drivers)." }
+      }
     }
   },
   "definitions": {

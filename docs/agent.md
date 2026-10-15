@@ -127,6 +127,14 @@ All endpoints require the authenticated TLS connection described above.
   `timedOut`, `truncated` (output is capped at 4 MiB per stream) or `error`.
   Timeouts default to 60 seconds, at most 30 minutes.
 
+- `PUT /v1/links` — the addresses of the guest's link-network NICs (see
+  [proxmox-setup.md](proxmox-setup.md#7-link-networks-optional)), each found by
+  MAC: `{ "links": [{ "mac": "02:51:54:00:00:05", "address": "10.98.0.5/16" }] }`.
+  It's the complete set; the agent keeps those addresses on their NICs (static,
+  no gateway), retrying every few seconds for NICs that were just hot-plugged,
+  and reports per link whether it's `configured`. Quicksand sends it after
+  every link change and every 30 seconds, so a restarted agent catches up.
+
 Quicksand exposes these to signed-in users (for their own VMs) as
 `GET /api/vms/{id}/agent` and `POST /api/vms/{id}/exec`, and in the console's
 side panel.
@@ -197,5 +205,5 @@ unshare -rn sh -c '
 
 **Real VMs from a development machine**: tunnel through the Quicksand host
 with `ssh -N -D 1080 root@<quicksand-host>` and set `agent.proxy` to
-`socks5://127.0.0.1:1080` (see [proxmox-setup.md](proxmox-setup.md#7-developing-away-from-the-quicksand-host)).
+`socks5://127.0.0.1:1080` (see [proxmox-setup.md](proxmox-setup.md#8-developing-away-from-the-quicksand-host)).
 `quicksand agent info <agent-ip>` then works from the development machine too.

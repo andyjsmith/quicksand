@@ -4,6 +4,8 @@ import {
   EllipsisVertical,
   History,
   Info,
+  Link2,
+  Link2Off,
   Pause,
   Play,
   Power,
@@ -28,6 +30,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import LinkDialog from '@/components/LinkDialog.vue'
+import { useLinks } from '@/composables/useLinks'
 import { formatAgo } from '@/lib/format'
 import {
   DropdownMenu,
@@ -44,6 +48,20 @@ const router = useRouter()
 const ready = computed(() => props.vm.state === 'ready')
 const busy = computed(() => props.vm.state === 'deploying' || props.vm.state === 'destroying' || !!props.vm.action)
 const confirmingDestroy = ref(false)
+
+// Link networks.
+const links = useLinks()
+const linking = ref(false)
+const confirmingUnlink = ref(false)
+async function unlink() {
+  confirmingUnlink.value = false
+  emit('error', undefined)
+  try {
+    await api.unlink(props.vm.id)
+  } catch (e) {
+    emit('error', errorMessage(e))
+  }
+}
 
 async function power(action: PowerAction) {
   emit('error', undefined)
@@ -147,12 +165,36 @@ defineExpose({ power })
           </DropdownMenuItem>
         </template>
         <DropdownMenuSeparator />
+        <template v-if="links.enabled">
+          <DropdownMenuItem @select="linking = true"><Link2 /> Link to…</DropdownMenuItem>
+          <DropdownMenuItem v-if="vm.link" @select="confirmingUnlink = true">
+            <Link2Off /> Unlink from {{ vm.link.name }}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </template>
       </template>
       <DropdownMenuItem variant="destructive" @select="confirmingDestroy = true">
         <Trash2 /> Destroy
       </DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>
+
+  <LinkDialog v-if="links.enabled" v-model:open="linking" :vm="vm" @warning="emit('error', $event)" />
+  <AlertDialog v-model:open="confirmingUnlink">
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>Unlink {{ vm.name }}?</AlertDialogTitle>
+        <AlertDialogDescription>
+          It leaves {{ vm.link?.name }} and can no longer reach the machines in it.
+          A network left with a single machine is removed.
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>Cancel</AlertDialogCancel>
+        <Button variant="destructive" @click="unlink"><Link2Off /> Unlink</Button>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
 
   <AlertDialog v-model:open="snapshotOpen">
     <AlertDialogContent>

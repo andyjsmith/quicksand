@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { useTitle } from '@vueuse/core'
 import { CircleAlert, Layers, Monitor } from '@lucide/vue'
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { api, errorMessage, type Network, type Template } from '@/api'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { api, errorMessage, type Network, type Template, type VM } from '@/api'
 import AppHeader from '@/components/AppHeader.vue'
 import DeployDialog from '@/components/DeployDialog.vue'
+import LinkNetworkGroup from '@/components/LinkNetworkGroup.vue'
 import TemplateCard from '@/components/TemplateCard.vue'
 import VmCard from '@/components/VmCard.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -15,6 +16,22 @@ useTitle('Quicksand')
 
 const machines = useMachines()
 onBeforeUnmount(machines.stop)
+
+// Linked machines are grouped by network (oldest first), then the rest.
+const groups = computed(() => {
+  const byNetwork = new Map<number, { network: number; name: string; vms: VM[] }>()
+  const unlinked: VM[] = []
+  for (const vm of machines.machines.value) {
+    if (!vm.link) {
+      unlinked.push(vm)
+      continue
+    }
+    const g = byNetwork.get(vm.link.network) ?? { network: vm.link.network, name: vm.link.name, vms: [] }
+    g.vms.push(vm)
+    byNetwork.set(vm.link.network, g)
+  }
+  return { networks: [...byNetwork.values()].sort((a, b) => a.network - b.network), unlinked }
+})
 
 const templates = ref<Template[] | null>(null)
 const networks = ref<Network[]>([])
@@ -74,9 +91,20 @@ function startDeploy(t: Template) {
         >
           No machines yet. Deploy one from a template below.
         </div>
-        <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <VmCard v-for="vm in machines.machines.value" :key="vm.id" :vm="vm" />
-        </div>
+        <template v-else>
+          <LinkNetworkGroup v-for="g in groups.networks" :key="g.network" :network="g.network" :name="g.name" :vms="g.vms">
+            <VmCard v-for="vm in g.vms" :key="vm.id" :vm="vm" />
+          </LinkNetworkGroup>
+          <h3
+            v-if="groups.networks.length && groups.unlinked.length"
+            class="text-muted-foreground mt-2 px-1 text-xs font-medium tracking-wide uppercase"
+          >
+            Not linked
+          </h3>
+          <div v-if="groups.unlinked.length" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <VmCard v-for="vm in groups.unlinked" :key="vm.id" :vm="vm" />
+          </div>
+        </template>
       </section>
 
       <section class="flex flex-col gap-3">

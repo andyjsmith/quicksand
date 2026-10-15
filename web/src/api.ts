@@ -37,6 +37,24 @@ export type PowerAction = 'start' | 'shutdown' | 'stop' | 'reboot' | 'reset' | '
 /** What a VM is busy doing: a power action, or one on its snapshot. */
 export type VMAction = PowerAction | 'snapshot' | 'revert' | 'delete-snapshot'
 
+/** A VM's place on a link network (a private network VMs are joined into). */
+export interface VMLink {
+  network: number
+  name: string
+  /** The VM's address with its prefix length, e.g. "10.98.0.5/16". */
+  address: string
+  /** The link NIC's MAC, to find it in the guest. */
+  mac: string
+  /** configured: the agent set the address; pending: being set up; manual: the user must set it. */
+  status: 'configured' | 'pending' | 'manual'
+  error?: string
+}
+
+export interface LinksInfo {
+  enabled: boolean
+  subnet?: string
+}
+
 /** A step of a running action; done and total are bytes, when known. */
 export interface ActionProgress {
   step: string
@@ -71,6 +89,8 @@ export interface VM {
   actionError?: string
   /** How far along the action is, for those that say (snapshots). */
   actionProgress?: ActionProgress
+  /** The link network the VM is in, if any. */
+  link?: VMLink
   /** Supported console protocols, preferred first. */
   consoles: ConsoleProtocol[]
   /** Shells can use the VM's serial console. */
@@ -271,6 +291,15 @@ export const api = {
   /** Returns a VM to its snapshot, which it keeps. */
   revertSnapshot: (id: string) => request<void>('POST', `${vmPath(id)}/snapshot/revert`),
   deleteSnapshot: (id: string) => request<void>('DELETE', `${vmPath(id)}/snapshot`),
+  links: () => request<LinksInfo>('GET', '/api/links'),
+  /** Joins a VM and others into one link network; merge is needed when they're in different ones. */
+  link: (id: string, withIds: string[], merge = false) =>
+    request<{ network: { id: number; name: string }; warning?: string }>('POST', `${vmPath(id)}/link`, {
+      with: withIds,
+      merge,
+    }),
+  unlink: (id: string) => request<void>('POST', `${vmPath(id)}/unlink`),
+  renameLink: (id: number, name: string) => request<void>('PATCH', `/api/links/${id}`, { name }),
   /** Pushes back a VM's expiry by the configured extension. */
   extend: (id: string) => request<VM>('POST', `${vmPath(id)}/extend`),
   power: (id: string, action: PowerAction) => request<void>('POST', `${vmPath(id)}/power`, { action }),

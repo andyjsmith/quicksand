@@ -51,7 +51,14 @@ type vm struct {
 		Memory  bool      `json:"memory"`
 	} `json:"snapshot"`
 	ExtendsLeft *int `json:"extendsLeft"`
-	Agent       *struct {
+	Link        *struct {
+		Network int64  `json:"network"`
+		Name    string `json:"name"`
+		Address string `json:"address"`
+		MAC     string `json:"mac"`
+		Status  string `json:"status"`
+	} `json:"link"`
+	Agent *struct {
 		IP       string `json:"ip"`
 		Status   string `json:"status"`
 		Hostname string `json:"hostname"`
@@ -271,6 +278,10 @@ func cmdList(args []string) error {
 	if snapshots {
 		header += "\tSNAPSHOT"
 	}
+	linked := slices.ContainsFunc(list, func(v vm) bool { return v.Link != nil })
+	if linked {
+		header += "\tLINKED"
+	}
 	if *all {
 		header += "\tOWNER"
 	}
@@ -291,6 +302,16 @@ func cmdList(args []string) error {
 				snap = formatLeft(time.Since(v.Snapshot.TakenAt)) + " ago"
 			}
 			line += "\t" + snap
+		}
+		if linked {
+			link := "-"
+			if v.Link != nil {
+				link = v.Link.Name + " " + strings.Split(v.Link.Address, "/")[0]
+				if v.Link.Status == "manual" {
+					link += " (set manually)"
+				}
+			}
+			line += "\t" + link
 		}
 		if *all {
 			line += "\t" + v.Owner

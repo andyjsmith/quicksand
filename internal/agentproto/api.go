@@ -220,3 +220,32 @@ type FileHashes struct {
 	SHA1   string `json:"sha1"`
 	SHA256 string `json:"sha256"`
 }
+
+// LinkRequest is sent with PUT /v1/links: the addresses of the guest's
+// link-network NICs (networks the user joined VMs into), each found by its
+// MAC. It's the complete set; the agent keeps those addresses on their
+// NICs (no gateway) until the next request, and the server repeats it
+// after the agent restarts.
+type LinkRequest struct {
+	Links []Link `json:"links"`
+}
+
+type Link struct {
+	MAC string `json:"mac"`
+	// Address is the NIC's address with its prefix length, e.g. "10.98.0.5/16".
+	Address string `json:"address"`
+}
+
+// LinkResult reports, per link, whether its address is in place. A NIC
+// that was just added may take a moment to appear in the guest; the agent
+// keeps trying.
+type LinkResult struct {
+	Links []LinkStatus `json:"links"`
+}
+
+type LinkStatus struct {
+	MAC        string `json:"mac"`
+	Interface  string `json:"interface,omitempty"`
+	Configured bool   `json:"configured"`
+	Error      string `json:"error,omitempty"`
+}

@@ -66,6 +66,7 @@ type Agent struct {
 	cfg     Config
 	keys    []ed25519.PublicKey
 	network *agentproto.AgentNetwork
+	links   linkSet
 	handler http.Handler
 }
 
@@ -107,6 +108,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	go a.keepLinks(ctx)
 	for ctx.Err() == nil {
 		addr, err := a.listenAddress(ctx)
 		if err != nil {

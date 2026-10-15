@@ -55,6 +55,10 @@ type Service struct {
 	boots map[string]*bootWatch
 	// snapshots caches each VM's snapshot (nil: none), once read.
 	snapshots map[string]*SnapshotInfo
+	// linkMu serializes link network changes; linkStates holds whether each
+	// linked VM's agent has set its address.
+	linkMu     sync.Mutex
+	linkStates map[string]linkState
 
 	// agents is nil when no agent is configured.
 	agents *agentclient.Client
@@ -79,7 +83,8 @@ type actionState struct {
 func NewService(cfg *config.Config, client *pve.Client, s *store.Store, hub *Hub, agents *agentclient.Client) *Service {
 	return &Service{cfg: cfg, pve: client, store: s, hub: hub, jobs: map[string]*job{}, actions: map[string]actionState{},
 		consoles: map[string]consoleInfo{}, boots: map[string]*bootWatch{}, snapshots: map[string]*SnapshotInfo{},
-		agents: agents, probes: agentProbes{results: map[string]agentProbe{}}}
+		linkStates: map[string]linkState{},
+		agents:     agents, probes: agentProbes{results: map[string]agentProbe{}}}
 }
 
 // Recover handles jobs interrupted by a restart: unfinished deployments are
@@ -414,6 +419,7 @@ func (s *Service) Destroy(ctx context.Context, vm store.VM) error {
 }
 
 func (s *Service) runDestroy(ctx context.Context, vm store.VM) {
+	s.leaveLinks(ctx, vm)
 	// A VM the token can't see doesn't exist (e.g. its clone failed):
 	// Proxmox answers 403 rather than 404 for VM IDs outside our pool.
 	if list, err := s.pve.ListVMs(ctx); err == nil {
@@ -547,6 +553,7 @@ func (s *Service) remove(vm store.VM) {
 	delete(s.actions, vm.ID)
 	delete(s.consoles, vm.ID)
 	delete(s.snapshots, vm.ID)
+	delete(s.linkStates, vm.ID)
 	s.mu.Unlock()
 	s.forgetProbe(vm.ID)
 	slog.Info("vm destroyed", "id", vm.ID, "vmid", vm.VMID)

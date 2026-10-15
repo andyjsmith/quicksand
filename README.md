@@ -22,6 +22,8 @@ Proxmox account (or your attention) to get one.
 - Power controls, plus a single snapshot per VM. Take it, break things,
   revert, and repeat as often as you like. Memory is included by default, so
   reverting puts you right back where you were.
+- Link networks: link a few of your VMs and they share a private network,
+  reaching each other and nothing else. They show up grouped on the dashboard.
 - Expiry with optional extensions, and quotas per user, per template and overall.
 - An admin page for users and everyone's machines.
 

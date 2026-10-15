@@ -38,6 +38,8 @@ template's ID names it too: with only `win10-2e1782` deployed from `win10`,
 | `qs snapshot take [-disk-only] [-force] <vm>` | Snapshot a VM, with its memory unless `-disk-only`. Each VM has one snapshot; taking another replaces it (asks first, unless `-force`) |
 | `qs snapshot revert [-force] <vm>` | Return a VM to its snapshot, which is kept so you can revert again (asks first, unless `-force`) |
 | `qs snapshot delete [-force] <vm>` | Delete a VM's snapshot (asks first, unless `-force`) |
+| `qs link [-merge] [-name NAME] <vm> <vm>...` | Join VMs into a private link network, where they reach each other and nothing else. VMs already in different networks merge them (asks first, unless `-merge`); `-name` names the network |
+| `qs unlink <vm>` | Take a VM out of its link network (a network left with one VM is removed) |
 | `qs ps <vm>` | The guest's processes (needs the agent) |
 | `qs kill [-f] <vm> <pid>` | End a guest process; `-f` sends SIGKILL on Linux (Windows always terminates) |
 | `qs netstat <vm>` | The guest's TCP and UDP sockets and their processes |

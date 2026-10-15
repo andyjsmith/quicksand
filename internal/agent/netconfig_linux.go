@@ -20,3 +20,15 @@ func configureAddress(ctx context.Context, iface net.Interface, prefix netip.Pre
 	}
 	return nil
 }
+
+// unmanageInterface tells NetworkManager, if it runs, to leave the
+// interface alone until reboot (when the agent does this again).
+func unmanageInterface(ctx context.Context, iface net.Interface) error {
+	if _, err := exec.LookPath("nmcli"); err != nil {
+		return nil
+	}
+	if out, err := exec.CommandContext(ctx, "nmcli", "device", "set", iface.Name, "managed", "no").CombinedOutput(); err != nil {
+		return fmt.Errorf("nmcli: %v: %s", err, out)
+	}
+	return nil
+}

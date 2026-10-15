@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, CircleAlert, Monitor, SquareTerminal } from '@lucide/vue'
+import { ArrowLeft, CircleAlert, Monitor, SquareTerminal, TriangleAlert } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import ActionProgressBar from '@/components/ActionProgressBar.vue'
@@ -44,6 +44,7 @@ const details = computed(() => {
     ['Agent', v.agent ? `${v.agent.status} (${v.agent.ip})` : 'none'],
     ['Guest', v.agent?.hostname ? `${v.agent.hostname} · ${v.agent.os} · agent ${v.agent.version}` : ''],
     ['Created', new Date(v.createdAt).toLocaleString()],
+    ['Link network', v.link ? `${v.link.name} · ${v.link.address}` : ''],
     ['Snapshot', v.snapshot ? `${new Date(v.snapshot.takenAt).toLocaleString()}${v.snapshot.memory ? ' (with memory)' : ' (disks only)'}` : ''],
   ].filter(([, value]) => value)
 })
@@ -89,6 +90,21 @@ const details = computed(() => {
             <TabsTrigger value="shell" :disabled="!shellReady">Shell</TabsTrigger>
           </TabsList>
           <TabsContent value="overview" class="flex flex-col gap-6 pt-2">
+            <div
+              v-if="vm.link?.status === 'manual'"
+              class="flex max-w-2xl gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm"
+            >
+              <TriangleAlert class="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div class="flex flex-col gap-1">
+                <p class="font-medium">Set this machine's link network address yourself</p>
+                <p class="text-muted-foreground">
+                  {{ vm.link.error ? `${vm.link.error}, so it` : 'It has no agent to do it, so it' }} can't reach
+                  {{ vm.link.name }} until you do. In the guest, give the network adapter with MAC
+                  <code class="text-foreground">{{ vm.link.mac }}</code> the static address
+                  <code class="text-foreground">{{ vm.link.address }}</code>, with no gateway.
+                </p>
+              </div>
+            </div>
             <dl class="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">
               <template v-for="[label, value] in details" :key="label">
                 <dt class="text-muted-foreground">{{ label }}</dt>

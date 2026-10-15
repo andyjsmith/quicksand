@@ -102,6 +102,14 @@ func (c *Client) SetDisplay(ctx context.Context, host string, req agentproto.Dis
 	return out, err
 }
 
+// SetLinks gives the guest's link-network NICs their addresses (the
+// complete set). Agents from before link networks answer 404.
+func (c *Client) SetLinks(ctx context.Context, host string, req agentproto.LinkRequest) (agentproto.LinkResult, error) {
+	var out agentproto.LinkResult
+	err := c.do(ctx, http.MethodPut, host, "/v1/links", req, &out)
+	return out, err
+}
+
 // DownloadZip streams a guest file or directory as a zip archive encrypted
 // with password. The caller closes the response body.
 func (c *Client) DownloadZip(ctx context.Context, host string, f FileRef, password string) (*http.Response, error) {

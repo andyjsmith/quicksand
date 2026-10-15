@@ -37,7 +37,9 @@ type View struct {
 	Action      pve.PowerAction `json:"action,omitempty"`
 	ActionError string          `json:"actionError,omitempty"`
 	// ActionProgress is how far along the action is, for those that say.
-	ActionProgress  *ActionProgress    `json:"actionProgress,omitempty"`
+	ActionProgress *ActionProgress `json:"actionProgress,omitempty"`
+	// Link is the VM's link network, if it's in one.
+	Link            *LinkView          `json:"link,omitempty"`
 	Consoles        []console.Protocol `json:"consoles"`
 	AbsolutePointer bool               `json:"absolutePointer"`
 	// ExpiresAt is when the VM is destroyed, unless extended; unset if it
@@ -122,6 +124,11 @@ func (s *Service) View(ctx context.Context, vm store.VM) View {
 		v.ExpiryWarningSeconds = int64(min(24*time.Hour, time.Duration(s.cfg.Expiry.TimeLimit)/4).Seconds())
 	}
 	v.Action, v.ActionError, v.ActionProgress = s.Action(vm.ID)
+	if vm.LinkID != 0 {
+		if networks, err := s.store.LinkNetworks(ctx); err == nil {
+			v.Link = s.linkView(vm, networks)
+		}
+	}
 	if vm.State != store.VMReady {
 		return v
 	}

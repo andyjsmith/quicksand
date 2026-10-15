@@ -43,7 +43,40 @@ type Config struct {
 	// Quota limits how many VMs exist at once, across all templates; each
 	// template can have its own as well. Without it, there is no limit.
 	Quota *Quota `json:"quota,omitempty"`
+	// Links enables link networks: private networks users join their VMs
+	// into. Without it, VMs can't be linked.
+	Links *Links `json:"links,omitempty"`
 }
+
+// Links configures link networks. Each one is a VLAN on Bridge; each linked
+// VM gets an extra NIC on it, with an address from Subnet that its agent
+// sets (or the user, without an agent). Linked VMs reach each other freely
+// and nothing else.
+type Links struct {
+	// Bridge is a VLAN-aware bridge with no uplink (e.g. the agent's
+	// internal vmbr9), so link networks reach nothing outside it.
+	Bridge string `json:"bridge"`
+	// VLANs is the range of tags link networks are given, one per network.
+	// It must not include the agent network's tag.
+	VLANs VLANRange `json:"vlans"`
+	// Subnet linked VMs are addressed from, e.g. "10.98.0.0/16". Each VM
+	// keeps its address while it exists, through merges.
+	Subnet string `json:"subnet"`
+	// MACPrefix is the first three bytes of link NIC MACs (default 02:51:54).
+	MACPrefix string `json:"macPrefix"`
+	// NIC is the VM network device used for links (default "net2").
+	NIC string `json:"nic"`
+	// Model is the NIC model (default "e1000", which needs no guest drivers).
+	Model string `json:"model"`
+}
+
+type VLANRange struct {
+	From int `json:"from"`
+	To   int `json:"to"`
+}
+
+// DefaultLinkMACPrefix is the default first three bytes of link NIC MACs.
+const DefaultLinkMACPrefix = "02:51:54"
 
 // Expiry configures how long deployed VMs live.
 type Expiry struct {
@@ -336,6 +369,11 @@ func (c *Config) validate() error {
 			return fmt.Errorf("agent: %w", err)
 		}
 	}
+	if c.Links != nil {
+		if err := c.Links.validate(c.Agent); err != nil {
+			return fmt.Errorf("links: %w", err)
+		}
+	}
 	if defaults == 0 && len(c.Networks) > 0 {
 		c.Networks[0].Default = true
 	}
@@ -382,6 +420,52 @@ func (a *Agent) validate() error {
 		return fmt.Errorf("network.serverIP: %w", err)
 	}
 	return nil
+}
+
+func (l *Links) validate(agent *Agent) error {
+	if l.Bridge == "" {
+		return errors.New("bridge is required")
+	}
+	// Untagged ports on a VLAN-aware bridge are on VLAN 1.
+	if l.VLANs.From < 2 || l.VLANs.To > 4094 || l.VLANs.To < l.VLANs.From {
+		return errors.New("vlans.from and vlans.to must give a range of VLAN tags within 2-4094")
+	}
+	if l.NIC == "" {
+		l.NIC = "net2"
+	}
+	if !netKey.MatchString(l.NIC) || l.NIC == "net0" {
+		return errors.New(`nic must be a network device other than net0, e.g. "net2"`)
+	}
+	if l.Model == "" {
+		l.Model = "e1000"
+	}
+	if l.MACPrefix == "" {
+		l.MACPrefix = DefaultLinkMACPrefix
+	}
+	ln, err := agentproto.ParseAgentNetwork(l.Subnet, l.MACPrefix)
+	if err != nil {
+		return err
+	}
+	if agent != nil {
+		if l.NIC == agent.Network.NIC {
+			return fmt.Errorf("nic %s is the agent's NIC", l.NIC)
+		}
+		an := agent.ParsedNetwork()
+		// The agent finds its own NIC by MAC prefix.
+		if ln.MACPrefix == an.MACPrefix {
+			return errors.New("macPrefix must differ from the agent network's")
+		}
+		if ln.Subnet.Overlaps(an.Subnet) {
+			return fmt.Errorf("subnet %s overlaps the agent subnet %s", ln.Subnet, an.Subnet)
+		}
+	}
+	return nil
+}
+
+// ParsedNetwork returns the link addressing scheme (valid after Load).
+func (l *Links) ParsedNetwork() agentproto.AgentNetwork {
+	n, _ := agentproto.ParseAgentNetwork(l.Subnet, l.MACPrefix)
+	return n
 }
 
 // Key returns the parsed private key (valid after Load).

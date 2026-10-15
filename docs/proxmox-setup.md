@@ -305,7 +305,51 @@ updating every template. The public key is shown on the Admin page and by
 4. In Proxmox, the clone's Firewall tab shows Quicksand's rule, the
    `ipfilter-net1` IP set, and the options (`DROP` policies, IP filter on).
 
-## 7. Developing away from the Quicksand host
+## 7. Link networks (optional)
+
+Users can link their VMs into private networks ("Link to…" in a machine's
+menu, or `qs link`): linked VMs reach each other freely, as if on one switch,
+and nothing else. Each link network is a VLAN on an internal bridge; each
+linked VM gets an extra NIC (`net2`) tagged with its network's VLAN, without
+the VM firewall. A VM keeps its address for life, so merging two networks just
+retags NICs, live.
+
+The bridge must be VLAN-aware and have no uplink, so link VLANs go nowhere
+else. The agent's internal `vmbr9` (6.1) is exactly that, and is used here.
+Link VLANs must not include the agent VNet's tag (`10`): on the same bridge,
+that VLAN *is* the agent network. Quicksand checks this when it starts and
+refuses to run if they overlap.
+
+```json
+"links": {
+  "bridge": "vmbr9",
+  "vlans": { "from": 100, "to": 199 },
+  "subnet": "10.98.0.0/16"
+}
+```
+
+`subnet` must not overlap the agent subnet. Optional: `macPrefix` (default
+`02:51:54`, must differ from the agent's), `nic` (default `net2`) and `model`
+(default `e1000`). Templates need NIC hot-plug, which is Proxmox's default
+(`hotplug` includes `network`).
+
+Permissions: using `vmbr9` with VLAN tags, and checking the range against the
+agent VNet:
+
+```sh
+grant /sdn/zones/localnetwork/vmbr9 PVESDNUser
+grant /sdn/zones/qsagent PVESDNUser
+```
+
+Addresses: there is no DHCP. The agent gives the link NIC its address (and
+on Linux, tells NetworkManager to leave the NIC alone). VMs without the agent
+are flagged in the UI, which shows the address and MAC to set by hand (static,
+no gateway).
+
+Guest firewalls still apply: Windows treats the new NIC as a Public network,
+whose firewall blocks inbound ping and most services until allowed.
+
+## 8. Developing away from the Quicksand host
 
 The agent network is only reachable from the Quicksand host. When running
 Quicksand on another machine (e.g. a laptop), tunnel agent connections
@@ -333,5 +377,7 @@ the production key never has to leave the Quicksand host.
 | `/sdn/zones/localnetwork/<bridge>` | `PVESDNUser`         | each plain bridge used            |
 | `/sdn/zones/<zone>/<vnet>`         | `PVESDNUser`         | each SDN VNet used                |
 | `/sdn/zones/qsagent/qsagent`       | `PVESDNUser`         | the agent network (if used)       |
+| `/sdn/zones/localnetwork/vmbr9`    | `PVESDNUser`         | link networks (if used)           |
+| `/sdn/zones/qsagent`               | `PVESDNUser`         | checking link VLANs (if used)     |
 
 Grant each to both the user and its token.

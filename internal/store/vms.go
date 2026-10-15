@@ -48,16 +48,23 @@ type VM struct {
 	// how many times its owner pushed that back.
 	ExpiresAt time.Time
 	Extends   int
+	// LinkID is the link network the VM is in, 0 for none. LinkIP is its
+	// address on link networks, kept from when it was first linked.
+	LinkID int64
+	LinkIP string
 }
 
 const vmColumns = `id, owner_id, name, template_id, node, vmid, cores, memory_mib, network_id,
-	state, step, progress, error, created_at, agent_ip, expires_at, extends`
+	state, step, progress, error, created_at, agent_ip, expires_at, extends, link_id, link_ip`
 
 func scanVM(row interface{ Scan(...any) error }) (VM, error) {
 	var v VM
 	var created, expires int64
+	var link sql.NullInt64
 	err := row.Scan(&v.ID, &v.OwnerID, &v.Name, &v.TemplateID, &v.Node, &v.VMID, &v.Cores, &v.MemoryMiB,
-		&v.NetworkID, &v.State, &v.Step, &v.Progress, &v.Error, &created, &v.AgentIP, &expires, &v.Extends)
+		&v.NetworkID, &v.State, &v.Step, &v.Progress, &v.Error, &created, &v.AgentIP, &expires, &v.Extends,
+		&link, &v.LinkIP)
+	v.LinkID = link.Int64
 	if errors.Is(err, sql.ErrNoRows) {
 		return VM{}, ErrNotFound
 	}
@@ -131,7 +138,7 @@ func (s *Store) CreateVM(ctx context.Context, v VM, fromID, toID int, exclude ma
 
 	v.CreatedAt = time.Now().UTC().Truncate(time.Second)
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO vms (`+vmColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO vms (`+vmColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '')`,
 		v.ID, v.OwnerID, v.Name, v.TemplateID, v.Node, v.VMID, v.Cores, v.MemoryMiB, v.NetworkID,
 		v.State, v.Step, v.Progress, v.Error, unix(v.CreatedAt), v.AgentIP, unixOrZero(v.ExpiresAt), v.Extends)
 	if err != nil {

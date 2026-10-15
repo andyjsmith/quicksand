@@ -28,6 +28,9 @@ template's ID while it's your only VM of that template):
                                              replacing its snapshot (asks first, unless -force)
   snapshot revert [-force] <vm>              return a VM to its snapshot, which is kept
   snapshot delete [-force] <vm>              delete a VM's snapshot
+  link [-merge] [-name NAME] <vm> <vm>...    join VMs into a private network (merging the ones
+                                             they're in, after asking unless -merge)
+  unlink <vm>                                take a VM out of its link network
 
 Agent:
   ps <vm>                                    list the guest's processes
@@ -82,6 +85,10 @@ func main() {
 		err = cmdDestroy(args)
 	case "extend":
 		err = cmdExtend(args)
+	case "link":
+		err = cmdLink(args)
+	case "unlink":
+		err = cmdUnlink(args)
 	case "snapshot":
 		err = cmdSnapshot(args)
 	case "ps":

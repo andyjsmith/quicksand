@@ -99,6 +99,9 @@ func serve(args []string) error {
 	if err := service.Recover(context.Background()); err != nil {
 		return fmt.Errorf("recover jobs: %w", err)
 	}
+	if err := service.CheckLinks(context.Background()); err != nil {
+		return err
+	}
 	defer service.Shutdown()
 
 	static := web.Dist()
@@ -118,6 +121,7 @@ func serve(args []string) error {
 	defer stop()
 	go expireSessions(ctx, db)
 	go service.RunExpiry(ctx)
+	go service.RunLinks(ctx)
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

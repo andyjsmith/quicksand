@@ -81,6 +81,10 @@ func New(d Deps) *Server {
 	s.mux.Handle("POST /api/vms/{id}/snapshot", user(s.handleSnapshot))
 	s.mux.Handle("POST /api/vms/{id}/snapshot/revert", user(s.handleRevertSnapshot))
 	s.mux.Handle("DELETE /api/vms/{id}/snapshot", user(s.handleDeleteSnapshot))
+	s.mux.Handle("POST /api/vms/{id}/link", user(s.handleLink))
+	s.mux.Handle("POST /api/vms/{id}/unlink", user(s.handleUnlink))
+	s.mux.Handle("GET /api/links", user(s.handleLinksInfo))
+	s.mux.Handle("PATCH /api/links/{id}", user(s.handleRenameLink))
 	s.mux.Handle("GET /api/vms/{id}/processes", user(s.handleProcesses))
 	s.mux.Handle("POST /api/vms/{id}/processes/{pid}/kill", user(s.handleKill))
 	s.mux.Handle("GET /api/vms/{id}/connections", user(s.handleConnections))
@@ -196,6 +200,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, err)
 	case errors.Is(err, store.ErrLimit):
 		writeError(w, http.StatusConflict, detail(err, store.ErrLimit))
+	case errors.Is(err, vms.ErrLinksDisabled):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, store.ErrNoLinkVLAN), errors.Is(err, store.ErrNoLinkIP):
+		writeError(w, http.StatusServiceUnavailable, err)
 	case errors.Is(err, vms.ErrNoSnapshot):
 		writeError(w, http.StatusConflict, err)
 	case errors.Is(err, vms.ErrCantExtend):

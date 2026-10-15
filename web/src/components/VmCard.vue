@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Camera, CircleAlert, Monitor, Play, SquareTerminal } from '@lucide/vue'
+import { Camera, CircleAlert, Link2, Monitor, Play, SquareTerminal, TriangleAlert } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { PowerAction, VM } from '@/api'
@@ -10,6 +10,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { useMinuteClock } from '@/composables/useNow'
 import { expiryState, formatMemory, formatUptime, osIcon, vmStatus } from '@/lib/format'
 import { loadPreview, onPreviewChange } from '@/lib/previews'
+import { linkColor } from '@/composables/useLinks'
 import ActionProgressBar from './ActionProgressBar.vue'
 import ExpiryBadge from './ExpiryBadge.vue'
 import VmActionsMenu from './VmActionsMenu.vue'
@@ -17,6 +18,14 @@ import VmActionsMenu from './VmActionsMenu.vue'
 const props = defineProps<{ vm: VM }>()
 
 const status = computed(() => vmStatus(props.vm))
+const running = computed(() => props.vm.power === 'running')
+const linkTitle = computed(() => {
+  const l = props.vm.link
+  if (!l) return ''
+  if (l.status === 'manual') return `Set ${l.address} on the network adapter with MAC ${l.mac} in the guest (no agent to do it)`
+  if (l.status === 'pending') return `${l.name}: setting up ${l.address}${l.error ? ` (${l.error})` : ''}`
+  return `${l.name}: ${l.address}`
+})
 const now = useMinuteClock()
 const expiringSoon = computed(() => !!expiryState(props.vm, now.value.getTime())?.soon)
 const icon = computed(() => osIcon(props.vm.os))
@@ -133,7 +142,19 @@ const primaryPower = computed<{ action: PowerAction; label: string } | null>(() 
         </Button>
       </div>
 
-      <ExpiryBadge v-if="vm.expiresAt" :vm="vm" extendable class="-mt-1" @error="error = $event" />
+      <div v-if="vm.link || vm.expiresAt" class="-mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <ExpiryBadge v-if="vm.expiresAt" :vm="vm" extendable @error="error = $event" />
+        <span
+          v-if="vm.link"
+          class="text-muted-foreground flex items-center gap-1 text-xs"
+          :title="linkTitle"
+        >
+          <TriangleAlert v-if="vm.link.status === 'manual'" class="size-3 text-amber-500" />
+          <Spinner v-else-if="vm.link.status === 'pending' && running" class="size-3" />
+          <Link2 v-else class="size-3" :class="vm.link.status === 'configured' ? linkColor(vm.link.network).text : ''" />
+          <span class="font-mono">{{ vm.link.address.split('/')[0] }}</span>
+        </span>
+      </div>
       <p v-if="vm.state === 'failed' || vm.actionError || error" class="text-destructive flex gap-1.5 text-xs">
         <CircleAlert class="mt-0.5 size-3 shrink-0" />
         <span class="break-words">{{ error || vm.actionError || vm.error }}</span>

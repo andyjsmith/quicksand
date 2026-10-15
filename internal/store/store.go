@@ -65,6 +65,17 @@ var migrations = []string{
 	// 3: expiry (0: none) and how many times it was extended.
 	`ALTER TABLE vms ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE vms ADD COLUMN extends INTEGER NOT NULL DEFAULT 0;`,
+	// 4: link networks, and each VM's network and address on them.
+	`CREATE TABLE link_networks (
+		id         INTEGER PRIMARY KEY,
+		name       TEXT    NOT NULL,
+		vlan       INTEGER NOT NULL UNIQUE,
+		created_at INTEGER NOT NULL
+	);
+	ALTER TABLE vms ADD COLUMN link_id INTEGER REFERENCES link_networks(id);
+	ALTER TABLE vms ADD COLUMN link_ip TEXT NOT NULL DEFAULT '';
+	CREATE INDEX vms_link ON vms(link_id);
+	CREATE UNIQUE INDEX vms_link_ip ON vms(link_ip) WHERE link_ip != '';`,
 }
 
 func Open(path string) (*Store, error) {

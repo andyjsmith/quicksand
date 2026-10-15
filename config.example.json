@@ -85,5 +85,13 @@
   "quota": {
     "user": 5,
     "global": 50
+  },
+  "links": {
+    "bridge": "vmbr9",
+    "vlans": {
+      "from": 100,
+      "to": 199
+    },
+    "subnet": "10.98.0.0/16"
   }
 }

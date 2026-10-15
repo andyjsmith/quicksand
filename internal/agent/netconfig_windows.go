@@ -18,3 +18,6 @@ func configureAddress(ctx context.Context, iface net.Interface, prefix netip.Pre
 	}
 	return nil
 }
+
+// unmanageInterface does nothing: a static address set with netsh stays.
+func unmanageInterface(ctx context.Context, iface net.Interface) error { return nil }
