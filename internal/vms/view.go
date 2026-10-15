@@ -34,8 +34,10 @@ type View struct {
 	Mem     int64   `json:"mem"`
 	MaxMem  int64   `json:"maxmem"`
 	// Action is a power action in progress; ActionError the last one's failure.
-	Action          pve.PowerAction    `json:"action,omitempty"`
-	ActionError     string             `json:"actionError,omitempty"`
+	Action      pve.PowerAction `json:"action,omitempty"`
+	ActionError string          `json:"actionError,omitempty"`
+	// ActionProgress is how far along the action is, for those that say.
+	ActionProgress  *ActionProgress    `json:"actionProgress,omitempty"`
 	Consoles        []console.Protocol `json:"consoles"`
 	AbsolutePointer bool               `json:"absolutePointer"`
 	// ExpiresAt is when the VM is destroyed, unless extended; unset if it
@@ -46,6 +48,8 @@ type View struct {
 	ExtendsLeft          *int       `json:"extendsLeft,omitempty"`
 	ExtendSeconds        int64      `json:"extendSeconds,omitempty"`
 	ExpiryWarningSeconds int64      `json:"expiryWarningSeconds,omitempty"`
+	// Snapshot is the VM's snapshot, if it has one.
+	Snapshot *SnapshotInfo `json:"snapshot,omitempty"`
 	// Serial is set when shells can use the VM's serial console.
 	Serial bool `json:"serial"`
 	// Agent is set for VMs with a Quicksand agent.
@@ -117,7 +121,7 @@ func (s *Service) View(ctx context.Context, vm store.VM) View {
 		// A day's notice, or a quarter of the time limit if that's shorter.
 		v.ExpiryWarningSeconds = int64(min(24*time.Hour, time.Duration(s.cfg.Expiry.TimeLimit)/4).Seconds())
 	}
-	v.Action, v.ActionError = s.Action(vm.ID)
+	v.Action, v.ActionError, v.ActionProgress = s.Action(vm.ID)
 	if vm.State != store.VMReady {
 		return v
 	}
@@ -126,6 +130,9 @@ func (s *Service) View(ctx context.Context, vm store.VM) View {
 		v.Power, v.Uptime, v.CPU, v.Mem, v.MaxMem = st.PowerState(), st.Uptime, st.CPU, st.Mem, st.MaxMem
 	}
 	v.Booting = v.Power == "running" && s.Booting(vm.ID)
+	if snap, err := s.snapshot(ctx, vm); err == nil {
+		v.Snapshot = snap
+	}
 	v.Agent = s.agentView(ctx, vm, v.Power == "running")
 	if info, ok := s.consoleInfo(ctx, vm); ok {
 		v.Consoles, v.AbsolutePointer = info.protocols, info.absolutePointer

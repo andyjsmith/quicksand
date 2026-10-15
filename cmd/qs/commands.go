@@ -21,26 +21,36 @@ import (
 )
 
 type vm struct {
-	ID           string     `json:"id"`
-	Name         string     `json:"name"`
-	TemplateName string     `json:"templateName"`
-	VMID         int        `json:"vmid"`
-	Cores        int        `json:"cores"`
-	MemoryMiB    int        `json:"memoryMiB"`
-	NetworkLabel string     `json:"networkLabel"`
-	State        string     `json:"state"`
-	Step         string     `json:"step"`
-	Progress     float64    `json:"progress"`
-	Error        string     `json:"error"`
-	Power        string     `json:"power"`
-	Booting      bool       `json:"booting"`
-	Action       string     `json:"action"`
-	ActionError  string     `json:"actionError"`
-	Owner        string     `json:"owner"`
-	Serial       bool       `json:"serial"`
-	ExpiresAt    *time.Time `json:"expiresAt"`
-	ExtendsLeft  *int       `json:"extendsLeft"`
-	Agent        *struct {
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	TemplateName string  `json:"templateName"`
+	VMID         int     `json:"vmid"`
+	Cores        int     `json:"cores"`
+	MemoryMiB    int     `json:"memoryMiB"`
+	NetworkLabel string  `json:"networkLabel"`
+	State        string  `json:"state"`
+	Step         string  `json:"step"`
+	Progress     float64 `json:"progress"`
+	Error        string  `json:"error"`
+	Power        string  `json:"power"`
+	Booting      bool    `json:"booting"`
+	Action       string  `json:"action"`
+	ActionError  string  `json:"actionError"`
+	// ActionProgress is the running action's step; Done and Total are
+	// bytes, when known.
+	ActionProgress *struct {
+		Step        string
+		Done, Total int64
+	} `json:"actionProgress"`
+	Owner     string     `json:"owner"`
+	Serial    bool       `json:"serial"`
+	ExpiresAt *time.Time `json:"expiresAt"`
+	Snapshot  *struct {
+		TakenAt time.Time `json:"takenAt"`
+		Memory  bool      `json:"memory"`
+	} `json:"snapshot"`
+	ExtendsLeft *int `json:"extendsLeft"`
+	Agent       *struct {
 		IP       string `json:"ip"`
 		Status   string `json:"status"`
 		Hostname string `json:"hostname"`
@@ -256,6 +266,10 @@ func cmdList(args []string) error {
 	if expiring {
 		header += "\tEXPIRES"
 	}
+	snapshots := slices.ContainsFunc(list, func(v vm) bool { return v.Snapshot != nil })
+	if snapshots {
+		header += "\tSNAPSHOT"
+	}
 	if *all {
 		header += "\tOWNER"
 	}
@@ -269,6 +283,13 @@ func cmdList(args []string) error {
 			formatMiB(v.MemoryMiB), v.NetworkLabel, agent)
 		if expiring {
 			line += "\t" + v.expiry()
+		}
+		if snapshots {
+			snap := "-"
+			if v.Snapshot != nil {
+				snap = formatLeft(time.Since(v.Snapshot.TakenAt)) + " ago"
+			}
+			line += "\t" + snap
 		}
 		if *all {
 			line += "\t" + v.Owner
@@ -388,9 +409,13 @@ func waitDeployed(c *client, v vm) error {
 	last := ""
 	for v.State == "deploying" {
 		time.Sleep(time.Second)
-		if err := c.do("GET", "/api/vms/"+url.PathEscape(v.ID), nil, &v); err != nil {
+		// A fresh value: fields the server leaves out when empty would keep
+		// their old values.
+		var now vm
+		if err := c.do("GET", "/api/vms/"+url.PathEscape(v.ID), nil, &now); err != nil {
 			return err
 		}
+		v = now
 		line := fmt.Sprintf("%3d%% %s", int(v.Progress*100), v.Step)
 		if line != last {
 			if tty {
@@ -524,10 +549,8 @@ func cmdDestroy(args []string) error {
 		return err
 	}
 	if !*yes {
-		fmt.Fprintf(os.Stderr, "Destroy %s (VM %d) and its disks? This can't be undone. [y/N] ", v.Name, v.VMID)
-		answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-		if !strings.EqualFold(strings.TrimSpace(answer), "y") {
-			return errors.New("cancelled")
+		if err := confirm(fmt.Sprintf("Destroy %s (VM %d) and its disks? This can't be undone.", v.Name, v.VMID)); err != nil {
+			return err
 		}
 	}
 	if err := c.do("DELETE", "/api/vms/"+url.PathEscape(v.ID), nil, nil); err != nil {

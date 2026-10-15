@@ -34,6 +34,15 @@ export interface Network {
 export type VMState = 'deploying' | 'ready' | 'failed' | 'destroying'
 export type PowerState = 'running' | 'stopped' | 'paused' | 'suspended' | 'unknown'
 export type PowerAction = 'start' | 'shutdown' | 'stop' | 'reboot' | 'reset' | 'suspend' | 'resume'
+/** What a VM is busy doing: a power action, or one on its snapshot. */
+export type VMAction = PowerAction | 'snapshot' | 'revert' | 'delete-snapshot'
+
+/** A step of a running action; done and total are bytes, when known. */
+export interface ActionProgress {
+  step: string
+  done?: number
+  total?: number
+}
 
 export interface VM {
   id: string
@@ -58,12 +67,20 @@ export interface VM {
   mem: number
   maxmem: number
   /** A power action in progress, and the last one's error. */
-  action?: PowerAction
+  action?: VMAction
   actionError?: string
+  /** How far along the action is, for those that say (snapshots). */
+  actionProgress?: ActionProgress
   /** Supported console protocols, preferred first. */
   consoles: ConsoleProtocol[]
   /** Shells can use the VM's serial console. */
   serial: boolean
+  /** The VM's snapshot (each VM has at most one). */
+  snapshot?: {
+    takenAt: string
+    /** It includes the VM's memory, so reverting resumes it as it was. */
+    memory: boolean
+  }
   /** When the VM is destroyed unless extended; unset if it never expires. */
   expiresAt?: string
   /** How many more times the owner may extend it; unset means no limit. */
@@ -249,6 +266,11 @@ export const api = {
   vm: (id: string) => request<VM>('GET', vmPath(id)),
   deploy: (req: DeployRequest) => request<VM>('POST', '/api/vms', req),
   destroy: (id: string) => request<void>('DELETE', vmPath(id)),
+  /** Snapshots a VM (with its memory unless told not to), replacing its snapshot. */
+  takeSnapshot: (id: string, memory: boolean) => request<void>('POST', `${vmPath(id)}/snapshot`, { memory }),
+  /** Returns a VM to its snapshot, which it keeps. */
+  revertSnapshot: (id: string) => request<void>('POST', `${vmPath(id)}/snapshot/revert`),
+  deleteSnapshot: (id: string) => request<void>('DELETE', `${vmPath(id)}/snapshot`),
   /** Pushes back a VM's expiry by the configured extension. */
   extend: (id: string) => request<VM>('POST', `${vmPath(id)}/extend`),
   power: (id: string, action: PowerAction) => request<void>('POST', `${vmPath(id)}/power`, { action }),

@@ -2,6 +2,7 @@
 import { ArrowLeft, CircleAlert, Monitor, SquareTerminal } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
+import ActionProgressBar from '@/components/ActionProgressBar.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -43,6 +44,7 @@ const details = computed(() => {
     ['Agent', v.agent ? `${v.agent.status} (${v.agent.ip})` : 'none'],
     ['Guest', v.agent?.hostname ? `${v.agent.hostname} · ${v.agent.os} · agent ${v.agent.version}` : ''],
     ['Created', new Date(v.createdAt).toLocaleString()],
+    ['Snapshot', v.snapshot ? `${new Date(v.snapshot.takenAt).toLocaleString()}${v.snapshot.memory ? ' (with memory)' : ' (disks only)'}` : ''],
   ].filter(([, value]) => value)
 })
 </script>
@@ -73,6 +75,7 @@ const details = computed(() => {
           <Button v-if="shellReady" variant="outline" @click="tab = 'shell'"><SquareTerminal /> Shell</Button>
           <VmActionsMenu :vm="vm" @error="error = $event" @destroyed="router.push('/')" />
         </div>
+        <ActionProgressBar v-if="vm.actionProgress" :progress="vm.actionProgress" class="max-w-md" />
         <p v-if="error || vm.actionError || vm.error" class="text-destructive flex gap-1.5 text-sm">
           <CircleAlert class="mt-0.5 size-4 shrink-0" /> {{ error || vm.actionError || vm.error }}
         </p>

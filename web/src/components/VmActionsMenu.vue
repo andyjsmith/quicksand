@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {
+  Camera,
   EllipsisVertical,
+  History,
   Info,
   Pause,
   Play,
@@ -24,6 +26,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+import { formatAgo } from '@/lib/format'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,6 +64,32 @@ async function destroy() {
   }
 }
 
+// Snapshots: one per VM, replaced by a new one, kept by reverting.
+// The kind outlives the dialog: its action closes it before the click
+// handler runs, and the text shouldn't change while it fades out.
+const snapshotOpen = ref(false)
+const snapshotDialog = ref<'take' | 'revert' | 'delete'>('take')
+const withMemory = ref(true)
+const running = computed(() => props.vm.power === 'running')
+function askSnapshot(kind: 'take' | 'revert' | 'delete') {
+  withMemory.value = true
+  snapshotDialog.value = kind
+  snapshotOpen.value = true
+}
+async function snapshotAction() {
+  const kind = snapshotDialog.value
+  snapshotOpen.value = false
+  emit('error', undefined)
+  try {
+    if (kind === 'take') await api.takeSnapshot(props.vm.id, withMemory.value && running.value)
+    else if (kind === 'revert') await api.revertSnapshot(props.vm.id)
+    else if (kind === 'delete') await api.deleteSnapshot(props.vm.id)
+  } catch (e) {
+    emit('error', errorMessage(e))
+  }
+}
+const takenAgo = computed(() => (props.vm.snapshot ? formatAgo(props.vm.snapshot.takenAt) : ''))
+
 defineExpose({ power })
 </script>
 
@@ -69,7 +100,7 @@ defineExpose({ power })
         <EllipsisVertical />
       </Button>
     </DropdownMenuTrigger>
-    <DropdownMenuContent align="end" class="w-44">
+    <DropdownMenuContent align="end" class="w-48">
       <template v-if="showDetails">
         <DropdownMenuItem @select="router.push({ name: 'vm', params: { id: vm.id } })">
           <Info /> Details
@@ -104,12 +135,72 @@ defineExpose({ power })
           <RotateCcw /> Force reset
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        <DropdownMenuItem :disabled="busy" @select="askSnapshot('take')">
+          <Camera /> {{ vm.snapshot ? 'Replace snapshot' : 'Take snapshot' }}
+        </DropdownMenuItem>
+        <template v-if="vm.snapshot">
+          <DropdownMenuItem :disabled="busy" @select="askSnapshot('revert')">
+            <History /> Revert to snapshot
+          </DropdownMenuItem>
+          <DropdownMenuItem :disabled="busy" @select="askSnapshot('delete')">
+            <Trash2 /> Delete snapshot
+          </DropdownMenuItem>
+        </template>
+        <DropdownMenuSeparator />
       </template>
       <DropdownMenuItem variant="destructive" @select="confirmingDestroy = true">
         <Trash2 /> Destroy
       </DropdownMenuItem>
     </DropdownMenuContent>
   </DropdownMenu>
+
+  <AlertDialog v-model:open="snapshotOpen">
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>
+          {{
+            snapshotDialog === 'take'
+              ? `${vm.snapshot ? 'Replace the snapshot of' : 'Snapshot'} ${vm.name}?`
+              : snapshotDialog === 'revert'
+                ? `Revert ${vm.name} to its snapshot?`
+                : `Delete ${vm.name}'s snapshot?`
+          }}
+        </AlertDialogTitle>
+        <AlertDialogDescription>
+          <template v-if="snapshotDialog === 'take'">
+            Saves the VM's disks{{ running ? ' and, if you like, its memory' : '' }} so you can return to this point
+            later.
+            <template v-if="vm.snapshot">The snapshot taken {{ takenAgo }} is replaced.</template>
+          </template>
+          <template v-else-if="snapshotDialog === 'revert'">
+            Everything since the snapshot ({{ takenAgo }}) is lost.
+            {{
+              vm.snapshot?.memory
+                ? 'It includes memory, so the VM resumes exactly as it was.'
+                : "It doesn't include memory, so the VM is left stopped."
+            }}
+            The snapshot is kept, so you can revert to it again.
+          </template>
+          <template v-else>The snapshot taken {{ takenAgo }} is deleted. The VM itself isn't changed.</template>
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <div v-if="snapshotDialog === 'take' && running" class="flex items-start gap-2">
+        <Checkbox id="snapshot-memory" v-model="withMemory" />
+        <div class="grid gap-0.5">
+          <Label for="snapshot-memory">Include memory</Label>
+          <p class="text-muted-foreground text-xs">
+            Reverting then resumes running programs as they were. Takes longer, and briefly pauses the VM.
+          </p>
+        </div>
+      </div>
+      <AlertDialogFooter>
+        <AlertDialogCancel>Cancel</AlertDialogCancel>
+        <AlertDialogAction :variant="snapshotDialog === 'take' ? 'default' : 'destructive'" @click="snapshotAction">
+          {{ snapshotDialog === 'take' ? (vm.snapshot ? 'Replace snapshot' : 'Take snapshot') : snapshotDialog === 'revert' ? 'Revert' : 'Delete' }}
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
 
   <AlertDialog v-model:open="confirmingDestroy">
     <AlertDialogContent>

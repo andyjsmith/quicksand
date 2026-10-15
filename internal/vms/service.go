@@ -53,6 +53,8 @@ type Service struct {
 	consoles map[string]consoleInfo
 	// boots holds the boot watch of VMs whose guest OS is starting.
 	boots map[string]*bootWatch
+	// snapshots caches each VM's snapshot (nil: none), once read.
+	snapshots map[string]*SnapshotInfo
 
 	// agents is nil when no agent is configured.
 	agents *agentclient.Client
@@ -67,15 +69,16 @@ type job struct {
 }
 
 type actionState struct {
-	Action pve.PowerAction
-	Error  string
+	Action   pve.PowerAction
+	Error    string
+	Progress *ActionProgress
 }
 
 // NewService creates the VM service. agents may be nil if no agent is
 // configured.
 func NewService(cfg *config.Config, client *pve.Client, s *store.Store, hub *Hub, agents *agentclient.Client) *Service {
 	return &Service{cfg: cfg, pve: client, store: s, hub: hub, jobs: map[string]*job{}, actions: map[string]actionState{},
-		consoles: map[string]consoleInfo{}, boots: map[string]*bootWatch{},
+		consoles: map[string]consoleInfo{}, boots: map[string]*bootWatch{}, snapshots: map[string]*SnapshotInfo{},
 		agents: agents, probes: agentProbes{results: map[string]agentProbe{}}}
 }
 
@@ -502,11 +505,11 @@ func (s *Service) Power(ctx context.Context, vm store.VM, action pve.PowerAction
 }
 
 // Action returns the power action in flight for a VM and the last error.
-func (s *Service) Action(id string) (pve.PowerAction, string) {
+func (s *Service) Action(id string) (pve.PowerAction, string, *ActionProgress) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a := s.actions[id]
-	return a.Action, a.Error
+	return a.Action, a.Error, a.Progress
 }
 
 func (s *Service) setAction(vm store.VM, a actionState) {
@@ -543,6 +546,7 @@ func (s *Service) remove(vm store.VM) {
 	s.mu.Lock()
 	delete(s.actions, vm.ID)
 	delete(s.consoles, vm.ID)
+	delete(s.snapshots, vm.ID)
 	s.mu.Unlock()
 	s.forgetProbe(vm.ID)
 	slog.Info("vm destroyed", "id", vm.ID, "vmid", vm.VMID)

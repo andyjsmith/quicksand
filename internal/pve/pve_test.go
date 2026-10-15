@@ -3,6 +3,7 @@ package pve
 import (
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"testing"
 )
 
@@ -88,5 +89,19 @@ func TestSetNetOption(t *testing.T) {
 	}
 	if got := SetNetOption("virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0", "firewall", "0"); got != "virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0,firewall=0" {
 		t.Errorf("append: %q", got)
+	}
+}
+
+func TestSnapshotJSON(t *testing.T) {
+	var list []Snapshot
+	err := json.Unmarshal([]byte(`[
+		{"name":"quicksand","snaptime":1792000000,"vmstate":1,"description":"x"},
+		{"name":"disk-only","snaptime":1792000001},
+		{"name":"current","running":1,"digest":"abc"}]`), &list)
+	if err != nil || len(list) != 3 {
+		t.Fatalf("%v, %d snapshots", err, len(list))
+	}
+	if !list[0].Memory || list[0].Taken.Unix() != 1792000000 || list[1].Memory || !list[2].Taken.IsZero() {
+		t.Errorf("snapshots = %+v", list)
 	}
 }

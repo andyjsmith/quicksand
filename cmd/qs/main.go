@@ -23,6 +23,10 @@ Machines (a VM is named by its name, Proxmox VM ID or Quicksand ID):
   start | shutdown | stop | reboot | reset | suspend | resume <vm>
   destroy [-y] <vm>                          destroy a VM and its disks
   extend <vm>                                push back a VM's expiry
+  snapshot take [--disk-only] [--force] <vm> snapshot a VM (with its memory unless --disk-only),
+                                             replacing its snapshot (asks first, unless --force)
+  snapshot revert [--force] <vm>             return a VM to its snapshot, which is kept
+  snapshot delete [--force] <vm>             delete a VM's snapshot
 
 Agent:
   ps <vm>                                    list the guest's processes
@@ -77,6 +81,8 @@ func main() {
 		err = cmdDestroy(args)
 	case "extend":
 		err = cmdExtend(args)
+	case "snapshot":
+		err = cmdSnapshot(args)
 	case "ps":
 		err = cmdPs(args)
 	case "kill":

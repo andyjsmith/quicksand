@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CircleAlert, Monitor, Play, SquareTerminal } from '@lucide/vue'
+import { Camera, CircleAlert, Monitor, Play, SquareTerminal } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { PowerAction, VM } from '@/api'
@@ -10,6 +10,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { useMinuteClock } from '@/composables/useNow'
 import { expiryState, formatMemory, formatUptime, osIcon, vmStatus } from '@/lib/format'
 import { loadPreview, onPreviewChange } from '@/lib/previews'
+import ActionProgressBar from './ActionProgressBar.vue'
 import ExpiryBadge from './ExpiryBadge.vue'
 import VmActionsMenu from './VmActionsMenu.vue'
 
@@ -69,7 +70,13 @@ const primaryPower = computed<{ action: PowerAction; label: string } | null>(() 
           <Monitor class="size-3.5" /> Open console
         </span>
       </div>
-      <!-- Deployment / teardown progress -->
+      <!-- Deployment / teardown / snapshot progress -->
+      <div
+        v-if="vm.actionProgress && vm.state === 'ready'"
+        class="bg-background/85 absolute inset-x-0 bottom-0 px-3 py-2.5 backdrop-blur"
+      >
+        <ActionProgressBar :progress="vm.actionProgress" />
+      </div>
       <div
         v-if="vm.state === 'deploying' || vm.state === 'destroying'"
         class="bg-background/85 absolute inset-x-0 bottom-0 flex flex-col gap-1.5 px-3 py-2.5 backdrop-blur"
@@ -109,6 +116,13 @@ const primaryPower = computed<{ action: PowerAction; label: string } | null>(() 
             :title="vm.agent.status === 'connected' ? `Agent connected (${vm.agent.hostname}, ${vm.agent.ip})` : `Agent not reachable at ${vm.agent.ip}`"
           >
             · <SquareTerminal class="size-3" :class="vm.agent.status === 'connected' ? 'text-emerald-500' : ''" /> agent
+          </span>
+          <span
+            v-if="vm.snapshot"
+            class="text-muted-foreground flex items-center gap-1"
+            :title="`Snapshot taken ${new Date(vm.snapshot.takenAt).toLocaleString()}${vm.snapshot.memory ? ', with memory' : ''}`"
+          >
+            · <Camera class="size-3" />
           </span>
         </span>
         <Button v-if="canConnect" size="sm" as-child>

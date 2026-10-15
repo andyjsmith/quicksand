@@ -78,6 +78,9 @@ func New(d Deps) *Server {
 	s.mux.Handle("GET /api/vms/{id}/serial", user(s.handleSerial))
 	s.mux.Handle("POST /api/vms/{id}/display", user(s.handleDisplay))
 	s.mux.Handle("POST /api/vms/{id}/extend", user(s.handleExtend))
+	s.mux.Handle("POST /api/vms/{id}/snapshot", user(s.handleSnapshot))
+	s.mux.Handle("POST /api/vms/{id}/snapshot/revert", user(s.handleRevertSnapshot))
+	s.mux.Handle("DELETE /api/vms/{id}/snapshot", user(s.handleDeleteSnapshot))
 	s.mux.Handle("GET /api/vms/{id}/processes", user(s.handleProcesses))
 	s.mux.Handle("POST /api/vms/{id}/processes/{pid}/kill", user(s.handleKill))
 	s.mux.Handle("GET /api/vms/{id}/connections", user(s.handleConnections))
@@ -193,6 +196,8 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, err)
 	case errors.Is(err, store.ErrLimit):
 		writeError(w, http.StatusConflict, detail(err, store.ErrLimit))
+	case errors.Is(err, vms.ErrNoSnapshot):
+		writeError(w, http.StatusConflict, err)
 	case errors.Is(err, vms.ErrCantExtend):
 		writeError(w, http.StatusConflict, detail(err, vms.ErrCantExtend))
 	case errors.Is(err, vms.ErrBusy), errors.Is(err, vms.ErrNotReady), errors.Is(err, store.ErrConflict):

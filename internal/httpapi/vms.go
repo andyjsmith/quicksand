@@ -139,6 +139,50 @@ func (s *Server) handleExtend(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.vms.View(r.Context(), vm))
 }
 
+// handleSnapshot takes a snapshot, with the VM's memory unless the body
+// says {"memory": false}, replacing the one it had.
+func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
+	vm, ok := s.ownedVM(w, r)
+	if !ok {
+		return
+	}
+	req := struct {
+		Memory *bool `json:"memory"`
+	}{}
+	if r.ContentLength != 0 && !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := s.vms.TakeSnapshot(r.Context(), vm, req.Memory == nil || *req.Memory); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (s *Server) handleRevertSnapshot(w http.ResponseWriter, r *http.Request) {
+	vm, ok := s.ownedVM(w, r)
+	if !ok {
+		return
+	}
+	if err := s.vms.RevertSnapshot(r.Context(), vm); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
+	vm, ok := s.ownedVM(w, r)
+	if !ok {
+		return
+	}
+	if err := s.vms.DeleteSnapshot(r.Context(), vm); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
 var powerActions = map[pve.PowerAction]bool{
 	pve.PowerStart: true, pve.PowerShutdown: true, pve.PowerStop: true, pve.PowerReboot: true,
 	pve.PowerReset: true, pve.PowerSuspend: true, pve.PowerResume: true,

@@ -1,6 +1,6 @@
 import { AppWindow, Box, SquareTerminal } from '@lucide/vue'
 import type { Component } from 'vue'
-import type { PowerAction, VM } from '@/api'
+import type { VM, VMAction } from '@/api'
 
 export function formatMemory(mib: number): string {
   return mib >= 1024 ? `${+(mib / 1024).toFixed(1)} GiB` : `${mib} MiB`
@@ -18,7 +18,10 @@ export function osIcon(os: string): Component {
   return os === 'windows' ? AppWindow : os === 'linux' ? SquareTerminal : Box
 }
 
-export const actionLabels: Record<PowerAction, string> = {
+export const actionLabels: Record<VMAction, string> = {
+  snapshot: 'Taking snapshot',
+  revert: 'Reverting to snapshot',
+  'delete-snapshot': 'Deleting snapshot',
   start: 'Starting',
   shutdown: 'Shutting down',
   stop: 'Stopping',
@@ -110,4 +113,14 @@ export function expiryState(vm: VM, now: number): ExpiryState | null {
     soon: remaining <= (vm.expiryWarningSeconds ?? 86_400) * 1000,
     canExtend: vm.extendsLeft !== 0,
   }
+}
+
+/** How long ago a time was, roughly: "just now", "5 minutes ago", "2 days ago". */
+export function formatAgo(iso: string, now = Date.now()): string {
+  const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000))
+  const unit = (n: number, u: string) => `${n} ${u}${n === 1 ? '' : 's'} ago`
+  if (s < 60) return 'just now'
+  if (s < 3600) return unit(Math.floor(s / 60), 'minute')
+  if (s < 86400) return unit(Math.floor(s / 3600), 'hour')
+  return unit(Math.floor(s / 86400), 'day')
 }
