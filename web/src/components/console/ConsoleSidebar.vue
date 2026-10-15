@@ -17,6 +17,7 @@ import {
   Unplug,
   Volume2,
   VolumeX,
+  SquarePlus,
 } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { RouterLink } from 'vue-router'
@@ -44,7 +45,7 @@ const props = defineProps<{
 }>()
 
 const open = defineModel<boolean>('open', { required: true })
-const emit = defineEmits<{ toggleFullscreen: [] }>()
+const emit = defineEmits<{ toggleFullscreen: []; openVm: [] }>()
 
 const c = props.console
 
@@ -206,6 +207,11 @@ const soundOn = computed({
           <ChevronLeft />
         </Button>
       </header>
+      <div class="px-4 pb-3">
+        <Button variant="outline" size="sm" class="w-full" @click="emit('openVm')">
+          <SquarePlus /> Open another VM
+        </Button>
+      </div>
       <Separator />
 
       <div class="flex-1 overflow-y-auto">

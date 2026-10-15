@@ -12,37 +12,39 @@ import UploadList from '@/components/UploadList.vue'
 import { filesFromDrop, useUploadQueue } from '@/composables/useUploadQueue'
 import { formatBytes } from '@/lib/format'
 
-// Files dropped on the console upload to the guest through the agent, after
-// a confirmation (a stray drag shouldn't copy anything). Everything renders
-// inside the console's container, so it also works in fullscreen.
+// Files dropped on a console pane upload to its guest through the agent,
+// after a confirmation (a stray drag shouldn't copy anything). Everything
+// renders inside the pane, so it also works in fullscreen.
 
-const props = defineProps<{ vm: VM | null }>()
+// target is the console pane it serves: drags over other panes are theirs.
+// (The page stops the browser from opening files dropped elsewhere.)
+const props = defineProps<{ vm: VM | null; target: HTMLElement | null }>()
 const emit = defineEmits<{ done: [] }>()
 
 const canUpload = computed(() => props.vm?.agent?.status === 'connected')
 
-// Dragging over the page: count enters and leaves, which fire per element.
+// Dragging over the pane: count enters and leaves, which fire per element.
 const dragging = ref(false)
 let depth = 0
 const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files')
-useEventListener(window, 'dragenter', (e: DragEvent) => {
+const target = () => props.target
+useEventListener(target, 'dragenter', (e: DragEvent) => {
   if (!hasFiles(e)) return
   depth++
   dragging.value = true
 })
-useEventListener(window, 'dragleave', (e: DragEvent) => {
+useEventListener(target, 'dragleave', (e: DragEvent) => {
   if (hasFiles(e) && --depth <= 0) {
     depth = 0
     dragging.value = false
   }
 })
-useEventListener(window, 'dragover', (e: DragEvent) => {
-  // Always take file drops, or the browser would navigate to the file.
+useEventListener(target, 'dragover', (e: DragEvent) => {
   if (!hasFiles(e)) return
   e.preventDefault()
   if (e.dataTransfer) e.dataTransfer.dropEffect = canUpload.value ? 'copy' : 'none'
 })
-useEventListener(window, 'drop', (e: DragEvent) => {
+useEventListener(target, 'drop', (e: DragEvent) => {
   if (!hasFiles(e)) return
   e.preventDefault()
   depth = 0
