@@ -252,6 +252,48 @@ func (s *Server) handleDisplay(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+// handleGetClipboard returns the guest clipboard; with ?after=SEQ&wait=N
+// it waits up to N seconds for it to change from SEQ (a long poll).
+func (s *Server) handleGetClipboard(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.guestAgent(w, r)
+	if !ok {
+		return
+	}
+	after, _ := strconv.ParseUint(r.URL.Query().Get("after"), 10, 64)
+	wait, _ := strconv.Atoi(r.URL.Query().Get("wait"))
+	waitFor := min(time.Duration(max(wait, 0))*time.Second, agentproto.MaxClipboardWait)
+	ctx, cancel := context.WithTimeout(r.Context(), waitFor+15*time.Second)
+	defer cancel()
+	clip, err := g.Clipboard(ctx, g.Host, after, waitFor)
+	if err != nil {
+		writeAgentError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, clip)
+}
+
+// handleSetClipboard puts text on the guest clipboard; the console calls
+// it when the user pastes, and only then.
+func (s *Server) handleSetClipboard(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.guestAgent(w, r)
+	if !ok {
+		return
+	}
+	var req agentproto.ClipboardSet
+	r.Body = http.MaxBytesReader(w, r.Body, 2*agentproto.MaxClipboardText)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("invalid JSON body (at most 1 MiB of text)"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), agentTimeout)
+	defer cancel()
+	if err := g.SetClipboard(ctx, g.Host, req.Text); err != nil {
+		writeAgentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // handleShell runs a command (or an interactive shell) in the guest over
 // a stream; see agentproto.ShellRequest. Query: command, shell, pty=1,
 // cols, rows, term.
@@ -367,7 +409,7 @@ func writeAgentError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, err)
 	case errors.Is(err, vms.ErrNotReady):
 		writeError(w, http.StatusConflict, err)
-	case errors.As(err, &ae) && ae.Status >= 400 && ae.Status < 500:
+	case errors.As(err, &ae) && (ae.Status >= 400 && ae.Status < 500 || ae.Status == http.StatusNotImplemented):
 		// The agent understood and refused (no such file, exists, ...).
 		writeError(w, ae.Status, errors.New(ae.Message))
 	case errors.As(err, &ae):

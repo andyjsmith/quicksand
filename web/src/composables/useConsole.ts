@@ -1,6 +1,7 @@
 import { useLocalStorage } from '@vueuse/core'
-import { onBeforeUnmount, ref, shallowRef, watch, type Ref } from 'vue'
-import { api } from '@/api'
+import { computed, onBeforeUnmount, ref, shallowRef, watch, type Ref } from 'vue'
+import { api, ApiError } from '@/api'
+import { interceptPaste } from '@/consoles/paste'
 import { consoleDrivers } from '@/consoles/registry'
 import type {
   AudioSettings,
@@ -22,11 +23,14 @@ import type {
 /**
  * canResizeGuest says whether the VM's agent can change the guest
  * resolution, for the remote scale mode where the protocol can't.
+ * agentConnected says whether the VM's agent is up, to share the clipboard
+ * through it when the protocol can't.
  */
 export function useConsole(
   vmId: Ref<string>,
   container: Ref<HTMLElement | null>,
   canResizeGuest?: (protocol: ConsoleProtocol) => 'prefer' | 'fallback' | false,
+  agentConnected?: () => boolean,
 ) {
   const protocol = ref<ConsoleProtocol | null>(null)
   const status = ref<ConsoleStatus>('idle')
@@ -51,6 +55,7 @@ export function useConsole(
     message.value = undefined
     resolution.value = null
     guestClipboard.value = null
+    agentClipboardError.value = undefined
     audioStatus.value = 'idle'
     try {
       const [session, d] = await Promise.all([
@@ -99,11 +104,77 @@ export function useConsole(
     if (protocol.value) connect(protocol.value)
   }
 
+  // The clipboard through the Quicksand agent, when the protocol can't
+  // share it (VNC, or SPICE without spice-vdagent). Copies in the guest
+  // reach the local clipboard; the local clipboard reaches the guest only
+  // when the user presses Ctrl+V in the console.
+  const agentClipboardError = ref<string>()
+  const agentClipboard = computed(
+    () =>
+      status.value === 'connected' &&
+      !capabilities.value?.clipboardSync &&
+      !!agentConnected?.() &&
+      !agentClipboardError.value,
+  )
+  // The text last pasted, which comes back as a guest clipboard change and
+  // mustn't overwrite whatever is copied locally since.
+  let lastPasted: string | null = null
+  let stopAgentClipboard: (() => void) | undefined
+  watch(agentClipboard, (on) => {
+    stopAgentClipboard?.()
+    stopAgentClipboard = undefined
+    if (!on || !container.value) return
+    const id = vmId.value
+    const abort = new AbortController()
+    watchGuestClipboard(id, abort.signal)
+    const stopPaste = interceptPaste(container.value, {
+      active: () => agentClipboard.value,
+      deliver: async (text) => {
+        lastPasted = text
+        await api.setClipboard(id, text)
+      },
+      sendKeys: (codes) => driver.value?.sendKeys(codes) ?? Promise.resolve(),
+    })
+    stopAgentClipboard = () => {
+      abort.abort()
+      stopPaste()
+    }
+  })
+
+  async function watchGuestClipboard(id: string, signal: AbortSignal) {
+    let seq = 0
+    let first = true
+    while (!signal.aborted) {
+      try {
+        // The first answer is what's there already: only later copies count.
+        const clip = await api.clipboard(id, seq, first ? 0 : 25, signal)
+        if (!first && clip.seq !== seq && clip.text && clip.text !== lastPasted) {
+          guestClipboard.value = clip.text
+          // Chromium allows this while the page has focus; elsewhere the
+          // sidebar offers a Copy button.
+          if (document.hasFocus()) navigator.clipboard?.writeText(clip.text).catch(() => {})
+        }
+        seq = clip.seq
+        first = false
+      } catch (e) {
+        if (signal.aborted) return
+        if (e instanceof ApiError && (e.status === 404 || e.status === 501)) {
+          // No clipboard to reach (no desktop session, or no tool for it on
+          // Linux), or an agent from before clipboard sharing.
+          agentClipboardError.value = e.status === 404 ? "This VM's agent is too old to share the clipboard." : e.message
+          return
+        }
+        await new Promise((r) => setTimeout(r, 5000))
+      }
+    }
+  }
+
   watch(scaleMode, (mode) => driver.value?.setScaleMode(mode))
   watch(audio, (a) => driver.value?.setAudio({ ...a }), { deep: true })
 
   onBeforeUnmount(() => {
     generation++
+    stopAgentClipboard?.()
     teardown()
   })
 
@@ -114,6 +185,10 @@ export function useConsole(
     capabilities,
     resolution,
     guestClipboard,
+    /** The clipboard is shared through the Quicksand agent. */
+    agentClipboard,
+    /** Why the agent can't share the clipboard, when it tried. */
+    agentClipboardError,
     audioStatus,
     scaleMode,
     audio,
@@ -125,7 +200,10 @@ export function useConsole(
     resumeAudio: () => driver.value?.resumeAudio(),
     sendKeys: (codes: string[]) => driver.value?.sendKeys(codes) ?? Promise.resolve(),
     typeText: (text: string) => driver.value?.typeText(text) ?? Promise.resolve({ skipped: [] }),
-    sendClipboard: (text: string) => driver.value?.sendClipboard(text) ?? Promise.resolve(),
+    sendClipboard: (text: string) =>
+      agentClipboard.value
+        ? api.setClipboard(vmId.value, text)
+        : (driver.value?.sendClipboard(text) ?? Promise.resolve()),
   }
 }
 

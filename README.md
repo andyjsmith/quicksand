@@ -35,6 +35,8 @@ Proxmox account (or your attention) to get one.
 - Process list or tree (with the services inside each svchost on Windows),
   and the guest's open sockets.
 - Exact display resizing on Windows, where SPICE alone can't manage it.
+- Clipboard sharing on consoles that can't do it themselves (VNC, or SPICE
+  without spice-vdagent). The guest only gets your clipboard when you paste.
 
 Templates without the agent can still get a shell over a serial console.
 

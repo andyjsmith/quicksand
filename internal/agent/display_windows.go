@@ -63,8 +63,8 @@ func setDisplay(ctx context.Context, width, height int) (agentproto.DisplayResul
 	return res, nil
 }
 
-// runInConsoleSession runs exe with args in the console session as SYSTEM
-// and returns its output. A non-zero exit is an error carrying the output.
+// runInConsoleSession runs exe with args (a helper command first) in the
+// console session as SYSTEM and returns its output. A non-zero exit is an error carrying the output.
 func runInConsoleSession(ctx context.Context, exe string, args ...string) ([]byte, error) {
 	session := windows.WTSGetActiveConsoleSessionId()
 	if session == 0xFFFFFFFF {
@@ -94,7 +94,7 @@ func runInConsoleSession(ctx context.Context, exe string, args ...string) ([]byt
 		return nil, err
 	}
 	windows.SetHandleInformation(r, windows.HANDLE_FLAG_INHERIT, 0)
-	output := os.NewFile(uintptr(r), "display-helper")
+	output := os.NewFile(uintptr(r), "helper")
 	defer output.Close()
 
 	app, err := windows.UTF16PtrFromString(exe)
@@ -116,14 +116,14 @@ func runInConsoleSession(ctx context.Context, exe string, args ...string) ([]byt
 	err = windows.CreateProcessAsUser(token, app, cmdLine, nil, nil, true, windows.CREATE_NO_WINDOW, nil, nil, &si, &pi)
 	windows.CloseHandle(w)
 	if err != nil {
-		return nil, fmt.Errorf("start the display helper: %w", err)
+		return nil, fmt.Errorf("start the %s helper: %w", args[0], err)
 	}
 	defer windows.CloseHandle(pi.Process)
 	windows.CloseHandle(pi.Thread)
 
 	read := make(chan []byte, 1)
 	go func() {
-		b, _ := io.ReadAll(io.LimitReader(output, 64<<10))
+		b, _ := io.ReadAll(io.LimitReader(output, 4<<20))
 		read <- b
 	}()
 	timeout := displayHelperTimeout
@@ -132,7 +132,7 @@ func runInConsoleSession(ctx context.Context, exe string, args ...string) ([]byt
 	}
 	if ev, _ := windows.WaitForSingleObject(pi.Process, uint32(timeout.Milliseconds())); ev != windows.WAIT_OBJECT_0 {
 		windows.TerminateProcess(pi.Process, 1)
-		return nil, errors.New("the display helper timed out")
+		return nil, fmt.Errorf("the %s helper timed out", args[0])
 	}
 	var code uint32
 	windows.GetExitCodeProcess(pi.Process, &code)
@@ -140,7 +140,7 @@ func runInConsoleSession(ctx context.Context, exe string, args ...string) ([]byt
 	if code != 0 {
 		msg := strings.TrimSpace(string(out))
 		if msg == "" {
-			msg = fmt.Sprintf("the display helper failed (exit code %#x)", code)
+			msg = fmt.Sprintf("the %s helper failed (exit code %#x)", args[0], code)
 		}
 		return nil, errors.New(msg)
 	}

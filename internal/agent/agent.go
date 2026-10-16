@@ -63,11 +63,12 @@ func LoadConfig(path string) (Config, error) {
 
 // Agent serves the agent API.
 type Agent struct {
-	cfg     Config
-	keys    []ed25519.PublicKey
-	network *agentproto.AgentNetwork
-	links   linkSet
-	handler http.Handler
+	cfg       Config
+	keys      []ed25519.PublicKey
+	network   *agentproto.AgentNetwork
+	links     linkSet
+	clipboard clipboardState
+	handler   http.Handler
 }
 
 func New(cfg Config) (*Agent, error) {

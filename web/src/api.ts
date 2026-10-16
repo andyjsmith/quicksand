@@ -250,11 +250,12 @@ export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const resp = await fetch(path, {
     method,
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
   })
   const text = await resp.text()
   let data: { error?: string } = {}
@@ -291,6 +292,14 @@ export const api = {
   /** Returns a VM to its snapshot, which it keeps. */
   revertSnapshot: (id: string) => request<void>('POST', `${vmPath(id)}/snapshot/revert`),
   deleteSnapshot: (id: string) => request<void>('DELETE', `${vmPath(id)}/snapshot`),
+  /**
+   * The guest clipboard through the agent; when its seq is `after`, waits
+   * up to `wait` seconds for a change first.
+   */
+  clipboard: (id: string, after: number, wait: number, signal?: AbortSignal) =>
+    request<{ seq: number; text: string }>('GET', `${vmPath(id)}/clipboard?after=${after}&wait=${wait}`, undefined, signal),
+  /** Puts text on the guest clipboard through the agent. */
+  setClipboard: (id: string, text: string) => request<void>('PUT', `${vmPath(id)}/clipboard`, { text }),
   links: () => request<LinksInfo>('GET', '/api/links'),
   /** Joins a VM and others into one link network; merge is needed when they're in different ones. */
   link: (id: string, withIds: string[], merge = false) =>

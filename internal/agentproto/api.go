@@ -249,3 +249,23 @@ type LinkStatus struct {
 	Configured bool   `json:"configured"`
 	Error      string `json:"error,omitempty"`
 }
+
+// Clipboard is the guest clipboard's text, returned by GET /v1/clipboard.
+// Seq changes whenever the text does, so a client can wait for the next
+// change with ?after=SEQ&wait=SECONDS (a long poll).
+type Clipboard struct {
+	Seq  uint64 `json:"seq"`
+	Text string `json:"text"`
+}
+
+// ClipboardSet is sent with PUT /v1/clipboard to put text on the guest
+// clipboard (when the user pastes into the console).
+type ClipboardSet struct {
+	Text string `json:"text"`
+}
+
+// MaxClipboardText caps clipboard text in either direction.
+const MaxClipboardText = 1 << 20
+
+// MaxClipboardWait caps how long GET /v1/clipboard waits for a change.
+const MaxClipboardWait = 25 * time.Second

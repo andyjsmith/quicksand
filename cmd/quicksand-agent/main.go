@@ -36,6 +36,9 @@ func main() {
 		case "set-display":
 			// The agent runs itself in the console session to resize the display.
 			os.Exit(agent.RunDisplayHelper(os.Args[2:]))
+		case "clipboard-get", "clipboard-set":
+			// And to reach the clipboard (Windows).
+			os.Exit(agent.RunClipboardHelper(os.Args[1:]))
 		}
 	}
 	flag.Usage = func() {

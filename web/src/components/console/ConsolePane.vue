@@ -47,7 +47,7 @@ const ctl = useConsole(toRef(props, 'vmId'), viewport, (protocol) => {
   if (agent?.status !== 'connected') return false
   if (agent.os === 'windows') return 'prefer'
   return agent.os === 'linux' && protocol === 'spice' ? 'fallback' : false
-})
+}, () => vm.value?.agent?.status === 'connected')
 
 onMounted(async () => {
   try {

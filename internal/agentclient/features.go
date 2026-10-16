@@ -110,6 +110,20 @@ func (c *Client) SetLinks(ctx context.Context, host string, req agentproto.LinkR
 	return out, err
 }
 
+// Clipboard returns the guest clipboard's text; when its Seq is after, it
+// waits up to wait for the text to change first.
+func (c *Client) Clipboard(ctx context.Context, host string, after uint64, wait time.Duration) (agentproto.Clipboard, error) {
+	var out agentproto.Clipboard
+	q := url.Values{"after": {strconv.FormatUint(after, 10)}, "wait": {strconv.Itoa(int(wait.Seconds()))}}
+	err := c.do(ctx, http.MethodGet, host, "/v1/clipboard?"+q.Encode(), nil, &out)
+	return out, err
+}
+
+// SetClipboard puts text on the guest clipboard.
+func (c *Client) SetClipboard(ctx context.Context, host, text string) error {
+	return c.do(ctx, http.MethodPut, host, "/v1/clipboard", agentproto.ClipboardSet{Text: text}, nil)
+}
+
 // DownloadZip streams a guest file or directory as a zip archive encrypted
 // with password. The caller closes the response body.
 func (c *Client) DownloadZip(ctx context.Context, host string, f FileRef, password string) (*http.Response, error) {

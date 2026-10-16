@@ -36,6 +36,8 @@ func (a *Agent) routes() http.Handler {
 	mux.HandleFunc("POST /v1/files/zip", a.handleZip)
 	mux.HandleFunc("POST /v1/display", a.handleDisplay)
 	mux.HandleFunc("PUT /v1/links", a.handleLinks)
+	mux.HandleFunc("GET /v1/clipboard", a.handleGetClipboard)
+	mux.HandleFunc("PUT /v1/clipboard", a.handleSetClipboard)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, agentproto.Error{Error: "not found"})
 	})

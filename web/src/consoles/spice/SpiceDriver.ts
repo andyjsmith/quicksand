@@ -9,6 +9,7 @@ import {
   SpiceMsgClipboardSend,
 } from '@/vendor/spice-html5/spicemsg.js'
 import { watchClipboardRead } from '../clipboard'
+import { interceptPaste } from '../paste'
 import { Emitter } from '../emitter'
 import { sendKeyCombo, typeWithKeys } from '../keyboard'
 import type {
@@ -26,9 +27,6 @@ import { OpusPlayer, opusPlayerSupported } from './OpusPlayer'
 import { GuestResizer } from '../guestResize'
 
 const RESIZE_DEBOUNCE_MS = 250
-// After intercepting Ctrl+V, how long to wait for the browser's paste event
-// before passing the keystroke on regardless.
-const PASTE_EVENT_TIMEOUT_MS = 150
 // Lets the clipboard grab (main channel) reach the agent before the V
 // keystroke (inputs channel) makes the guest application paste.
 const PASTE_KEY_DELAY_MS = 50
@@ -347,62 +345,17 @@ export class SpiceDriver implements ConsoleDriver {
     }
   }
 
-  /**
-   * Pastes the local clipboard on Ctrl+V without the Clipboard API: let the
-   * browser run its native paste (which never prompts), hand the text to the
-   * guest, then deliver the V keystroke so the guest application pastes it.
-   */
+  /** Pastes the local clipboard on Ctrl+V (see interceptPaste). */
   private interceptPaste(container: HTMLElement): void {
-    let pending: ReturnType<typeof setTimeout> | undefined
-    // Whether the user is still holding Ctrl, which the guest also sees held.
-    let ctrlHeld = false
-    const pressV = () => {
-      // A quick Ctrl+V can be over before the keystroke is sent; the guest
-      // then needs Ctrl pressed for it, or it would type a plain "v".
-      if (ctrlHeld) {
-        this.sendKey('KeyV', true)
-        setTimeout(() => this.sendKey('KeyV', false), 15)
-      } else {
-        sendKeyCombo(this.sendKey, ['ControlLeft', 'KeyV'])
-      }
-    }
-    const trackCtrl = (e: KeyboardEvent) => (ctrlHeld = e.ctrlKey)
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code !== 'KeyV' || !e.ctrlKey || e.altKey || e.metaKey || e.repeat) return
-      if (!this.sc?.agent_connected) return
-      // Keep spice-html5 from seeing (and cancelling) this keydown, so the
-      // browser fires a paste event. Ctrl itself has already reached the guest.
-      e.stopPropagation()
-      clearTimeout(pending)
-      pending = setTimeout(() => {
-        pending = undefined
-        pressV()
-      }, PASTE_EVENT_TIMEOUT_MS)
-    }
-
-    const onPaste = (e: ClipboardEvent) => {
-      if (pending === undefined) return
-      clearTimeout(pending)
-      pending = undefined
-      e.preventDefault()
-      const text = e.clipboardData?.getData('text/plain') ?? ''
-      if (text) this.offerClipboard(text)
-      setTimeout(pressV, text ? PASTE_KEY_DELAY_MS : 0)
-    }
-
-    window.addEventListener('keydown', trackCtrl, { capture: true })
-    window.addEventListener('keyup', trackCtrl, { capture: true })
-    container.addEventListener('keydown', onKeyDown, { capture: true })
-    // Firefox fires the paste event at the document body rather than at the
-    // focused canvas, so it has to be caught at the document.
-    document.addEventListener('paste', onPaste, { capture: true })
-    this.cleanups.push(() => {
-      clearTimeout(pending)
-      window.removeEventListener('keydown', trackCtrl, { capture: true })
-      window.removeEventListener('keyup', trackCtrl, { capture: true })
-      container.removeEventListener('keydown', onKeyDown, { capture: true })
-      document.removeEventListener('paste', onPaste, { capture: true })
-    })
+    this.cleanups.push(
+      interceptPaste(container, {
+        active: () => !!this.sc?.agent_connected,
+        deliver: (text) => {
+          this.offerClipboard(text)
+          return new Promise((resolve) => setTimeout(resolve, PASTE_KEY_DELAY_MS))
+        },
+        sendKeys: (codes) => this.sendKeys(codes),
+      }),
+    )
   }
 }

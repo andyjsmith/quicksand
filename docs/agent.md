@@ -135,6 +135,18 @@ All endpoints require the authenticated TLS connection described above.
   and reports per link whether it's `configured`. Quicksand sends it after
   every link change and every 30 seconds, so a restarted agent catches up.
 
+- `GET /v1/clipboard?after=SEQ&wait=SECONDS` — the guest clipboard's text and
+  a `seq` that changes with it; when `seq` is still `after`, waits up to `wait`
+  seconds (at most 25) for a change first. `PUT /v1/clipboard` with
+  `{ "text": "..." }` sets it. Consoles use these when their protocol can't
+  share the clipboard (VNC, or SPICE without spice-vdagent): copies in the guest
+  reach the user's clipboard, and the user's clipboard reaches the guest only
+  when they press Ctrl+V in the console. On Windows the agent reaches the
+  console session's clipboard through a helper copy of itself; on Linux it runs
+  `xclip`, `xsel` or `wl-clipboard` as the desktop user, so install one of them
+  (xclip works on GNOME's Wayland sessions too). Without them, or with no one
+  logged in, the endpoints answer 501.
+
 Quicksand exposes these to signed-in users (for their own VMs) as
 `GET /api/vms/{id}/agent` and `POST /api/vms/{id}/exec`, and in the console's
 side panel.

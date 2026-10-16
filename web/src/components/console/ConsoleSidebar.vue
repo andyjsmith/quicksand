@@ -317,8 +317,15 @@ const soundOn = computed({
         <Separator />
 
         <SidebarSection title="Clipboard" :icon="Clipboard">
-          <template v-if="c.capabilities.value?.clipboardSync || c.capabilities.value?.clipboardSend">
-            <template v-if="c.capabilities.value?.clipboardSync">
+          <template
+            v-if="c.capabilities.value?.clipboardSync || c.capabilities.value?.clipboardSend || c.agentClipboard.value"
+          >
+            <p v-if="c.agentClipboard.value" class="text-muted-foreground text-xs">
+              Shared through the Quicksand agent: copying in the guest updates your clipboard, and
+              <Kbd>Ctrl+V</Kbd> in the console pastes yours into the guest. The guest gets your clipboard only
+              when you paste.
+            </p>
+            <template v-else-if="c.capabilities.value?.clipboardSync">
               <p v-if="clipboardRead === 'granted'" class="text-muted-foreground text-xs">
                 Synced with your clipboard in both directions.
               </p>
@@ -353,10 +360,15 @@ const soundOn = computed({
             </div>
           </template>
           <p v-else class="text-muted-foreground text-xs">
-            <template v-if="c.protocol.value === 'spice'">
+            <template v-if="c.agentClipboardError.value">
+              The Quicksand agent can't share the clipboard: {{ c.agentClipboardError.value }}
+            </template>
+            <template v-else-if="c.protocol.value === 'spice'">
               Waiting for the SPICE agent. Install the SPICE guest tools to share the clipboard.
             </template>
-            <template v-else>Clipboard sharing isn't available over VNC. Use “Type text” instead.</template>
+            <template v-else>
+              Clipboard sharing over VNC needs the Quicksand agent. Use “Type text” instead.
+            </template>
           </p>
         </SidebarSection>
         <Separator />
