@@ -217,5 +217,5 @@ unshare -rn sh -c '
 
 **Real VMs from a development machine**: tunnel through the Quicksand host
 with `ssh -N -D 1080 root@<quicksand-host>` and set `agent.proxy` to
-`socks5://127.0.0.1:1080` (see [proxmox-setup.md](proxmox-setup.md#8-developing-away-from-the-quicksand-host)).
+`socks5://127.0.0.1:1080` (see [proxmox-setup.md](proxmox-setup.md#9-developing-away-from-the-quicksand-host)).
 `quicksand agent info <agent-ip>` then works from the development machine too.

@@ -11,6 +11,7 @@ import ExpiryBadge from '@/components/ExpiryBadge.vue'
 import VmActionsMenu from '@/components/VmActionsMenu.vue'
 import ConnectionsTab from '@/components/vm/ConnectionsTab.vue'
 import FilesTab from '@/components/vm/FilesTab.vue'
+import FirewallTab from '@/components/vm/FirewallTab.vue'
 import ProcessesTab from '@/components/vm/ProcessesTab.vue'
 import ShellTab from '@/components/vm/ShellTab.vue'
 import { useMachines } from '@/composables/useMachines'
@@ -88,6 +89,7 @@ const details = computed(() => {
             <TabsTrigger value="network" :disabled="!agentReady">Network</TabsTrigger>
             <TabsTrigger value="files" :disabled="!agentReady">Files</TabsTrigger>
             <TabsTrigger value="shell" :disabled="!shellReady">Shell</TabsTrigger>
+            <TabsTrigger value="firewall" :disabled="vm.state !== 'ready'">Firewall</TabsTrigger>
           </TabsList>
           <TabsContent value="overview" class="flex flex-col gap-6 pt-2">
             <div
@@ -129,6 +131,9 @@ const details = computed(() => {
             <FilesTab v-if="agentReady" :vm="vm" />
           </TabsContent>
           <!-- Kept mounted so a session survives switching tabs. -->
+          <TabsContent value="firewall" class="pt-2">
+            <FirewallTab :vm="vm" />
+          </TabsContent>
           <TabsContent value="shell" force-mount class="pt-2 data-[state=inactive]:hidden">
             <ShellTab v-if="shellReady" :vm="vm" />
           </TabsContent>

@@ -83,6 +83,8 @@ func New(d Deps) *Server {
 	s.mux.Handle("POST /api/vms/{id}/snapshot", user(s.handleSnapshot))
 	s.mux.Handle("POST /api/vms/{id}/snapshot/revert", user(s.handleRevertSnapshot))
 	s.mux.Handle("DELETE /api/vms/{id}/snapshot", user(s.handleDeleteSnapshot))
+	s.mux.Handle("GET /api/vms/{id}/firewall", user(s.handleGetFirewall))
+	s.mux.Handle("PUT /api/vms/{id}/firewall", user(s.handleSetFirewall))
 	s.mux.Handle("POST /api/vms/{id}/link", user(s.handleLink))
 	s.mux.Handle("POST /api/vms/{id}/unlink", user(s.handleUnlink))
 	s.mux.Handle("GET /api/links", user(s.handleLinksInfo))

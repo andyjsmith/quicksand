@@ -269,3 +269,19 @@ func (s *Store) AssignAgentIP(ctx context.Context, id string, next func(i int) (
 		return ip, tx.Commit()
 	}
 }
+
+// VMFirewall returns a VM's firewall settings as stored (JSON), empty if
+// they were never set.
+func (s *Store) VMFirewall(ctx context.Context, id string) (string, error) {
+	var fw string
+	err := s.db.QueryRowContext(ctx, `SELECT firewall FROM vms WHERE id = ?`, id).Scan(&fw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return fw, err
+}
+
+// SetVMFirewall stores a VM's firewall settings (JSON).
+func (s *Store) SetVMFirewall(ctx context.Context, id, fw string) error {
+	return expectRow(s.db.ExecContext(ctx, `UPDATE vms SET firewall = ? WHERE id = ?`, fw, id))
+}

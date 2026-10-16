@@ -1,3 +1,4 @@
+import type { VMFirewall } from '@/lib/firewall'
 import type { ConsoleProtocol, ConsoleSession } from '@/consoles/types'
 
 export interface User {
@@ -300,6 +301,10 @@ export const api = {
     request<{ seq: number; text: string }>('GET', `${vmPath(id)}/clipboard?after=${after}&wait=${wait}`, undefined, signal),
   /** Puts text on the guest clipboard through the agent. */
   setClipboard: (id: string, text: string) => request<void>('PUT', `${vmPath(id)}/clipboard`, { text }),
+  firewall: (id: string) => request<VMFirewall>('GET', `${vmPath(id)}/firewall`),
+  /** Saves and applies; a warning means it was saved but not (yet) applied. */
+  setFirewall: (id: string, fw: VMFirewall) =>
+    request<{ firewall: VMFirewall; warning?: string }>('PUT', `${vmPath(id)}/firewall`, fw),
   links: () => request<LinksInfo>('GET', '/api/links'),
   /** Joins a VM and others into one link network; merge is needed when they're in different ones. */
   link: (id: string, withIds: string[], merge = false) =>

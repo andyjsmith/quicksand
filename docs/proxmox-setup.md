@@ -349,7 +349,31 @@ no gateway).
 Guest firewalls still apply: Windows treats the new NIC as a Public network,
 whose firewall blocks inbound ping and most services until allowed.
 
-## 8. Developing away from the Quicksand host
+## 8. User firewall rules
+
+Users can filter their VMs' traffic on the VM page's Firewall tab: per
+network (Egress, the user network on `net0`, and the link network), a default
+for each direction and an ordered list of rules. Quicksand writes them as
+Proxmox VM firewall rules, so the datacenter firewall must be on (6.3); this
+works for VMs with or without the agent.
+
+- Every rule Quicksand writes is scoped to its NIC (`iface net0` or the link
+  NIC) and marked with a `Quicksand firewall:` comment. Rules for one NIC never
+  see another's traffic, so users can't affect the agent NIC, and the agent's
+  rule is kept at the top of the list.
+- A NIC only goes through the firewall (`firewall=1`) while its network
+  filters something; otherwise it stays unfiltered, as deployed.
+- Filtered NICs get DHCP and IPv6 neighbour discovery allowed, and on agent
+  VMs an IP set letting them use any address (the IP filter keeps pinning the
+  agent NIC to its own).
+- Blocked outbound traffic is rejected (programs fail fast), blocked inbound
+  traffic dropped. Replies to allowed connections always get through.
+- Quicksand re-applies the settings every minute, undoing edits made to its
+  rules in Proxmox and the NIC flags a snapshot revert restores.
+
+The API token's `PVEVMAdmin` on the pool covers all of this.
+
+## 9. Developing away from the Quicksand host
 
 The agent network is only reachable from the Quicksand host. When running
 Quicksand on another machine (e.g. a laptop), tunnel agent connections

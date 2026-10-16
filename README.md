@@ -24,6 +24,9 @@ Proxmox account (or your attention) to get one.
   reverting puts you right back where you were.
 - Link networks: link a few of your VMs and they share a private network,
   reaching each other and nothing else. They show up grouped on the dashboard.
+- A firewall per VM, in plain terms: allow or block traffic on its network
+  and its link network, with presets like "Internet only" for VMs that
+  shouldn't touch the local network.
 - Expiry with optional extensions, and quotas per user, per template and overall.
 - An admin page for users and everyone's machines.
 

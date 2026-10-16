@@ -217,6 +217,9 @@ func (s *Service) RevertSnapshot(ctx context.Context, vm store.VM) error {
 			// The rollback restores the VM's config as it was, link NIC and
 			// all; links may have changed since.
 			s.resyncLink(ctx, vm.ID)
+			if err := s.syncFirewall(ctx, vm); err != nil {
+				slog.Warn("firewall after revert", "id", vm.ID, "err", err)
+			}
 		}
 		return err
 	})

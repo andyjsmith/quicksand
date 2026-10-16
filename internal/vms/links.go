@@ -207,6 +207,10 @@ func (s *Service) applyLinkChange(ctx context.Context, change store.LinkChange) 
 		}
 		s.setLinkState(v, s.initialLinkState(v))
 		go s.pushLinks(v.ID, 10)
+		// The link rules come and go with the link.
+		if err := s.syncFirewall(ctx, v); err != nil {
+			errs = append(errs, fmt.Errorf("%s firewall: %w", v.Name, err))
+		}
 	}
 	if err := errors.Join(errs...); err != nil {
 		slog.Warn("configure link NICs", "err", err)
@@ -215,8 +219,9 @@ func (s *Service) applyLinkChange(ctx context.Context, change store.LinkChange) 
 	return nil
 }
 
-// linkNIC is the link NIC property for a VM on a VLAN.
-func (s *Service) linkNIC(vm store.VM, vlan int) (string, error) {
+// linkNIC is the link NIC property for a VM on a VLAN. It goes through
+// the firewall only when the VM's link network has rules (see firewall.go).
+func (s *Service) linkNIC(ctx context.Context, vm store.VM, vlan int) (string, error) {
 	l := s.cfg.Links
 	network := l.ParsedNetwork()
 	addr, err := netip.ParseAddr(vm.LinkIP)
@@ -228,7 +233,11 @@ func (s *Service) linkNIC(vm store.VM, vlan int) (string, error) {
 		return "", err
 	}
 	mac := agentproto.FormatMAC(network.MAC(off))
-	return fmt.Sprintf("%s=%s,bridge=%s,tag=%d,firewall=0", l.Model, mac, l.Bridge, vlan), nil
+	firewall := 0
+	if s.linkFiltered(ctx, vm) {
+		firewall = 1
+	}
+	return fmt.Sprintf("%s=%s,bridge=%s,tag=%d,firewall=%d", l.Model, mac, l.Bridge, vlan, firewall), nil
 }
 
 // syncLinkNIC gives a VM its link NIC on vlan, or removes it for 0, unless
@@ -246,7 +255,7 @@ func (s *Service) syncLinkNIC(ctx context.Context, vm store.VM, vlan int) error 
 		}
 		return s.pve.UpdateConfig(ctx, vm.Node, vm.VMID, nil, []string{l.NIC})
 	}
-	want, err := s.linkNIC(vm, vlan)
+	want, err := s.linkNIC(ctx, vm, vlan)
 	if err != nil {
 		return err
 	}

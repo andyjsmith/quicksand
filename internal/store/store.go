@@ -76,6 +76,8 @@ var migrations = []string{
 	ALTER TABLE vms ADD COLUMN link_ip TEXT NOT NULL DEFAULT '';
 	CREATE INDEX vms_link ON vms(link_id);
 	CREATE UNIQUE INDEX vms_link_ip ON vms(link_ip) WHERE link_ip != '';`,
+	// 5: user firewall settings (JSON; empty: never set).
+	`ALTER TABLE vms ADD COLUMN firewall TEXT NOT NULL DEFAULT '';`,
 }
 
 func Open(path string) (*Store, error) {

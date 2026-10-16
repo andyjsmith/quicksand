@@ -122,6 +122,7 @@ func serve(args []string) error {
 	go expireSessions(ctx, db)
 	go service.RunExpiry(ctx)
 	go service.RunLinks(ctx)
+	go service.RunFirewall(ctx)
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

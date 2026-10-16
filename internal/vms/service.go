@@ -59,6 +59,8 @@ type Service struct {
 	// linked VM's agent has set its address.
 	linkMu     sync.Mutex
 	linkStates map[string]linkState
+	// fwMu serializes firewall syncs (whose rule edits mustn't interleave).
+	fwMu sync.Mutex
 
 	// agents is nil when no agent is configured.
 	agents *agentclient.Client
