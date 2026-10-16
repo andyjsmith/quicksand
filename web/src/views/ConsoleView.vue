@@ -257,7 +257,7 @@ watch(focused, () => sidebarKey.value++)
         v-for="t in tabs"
         :key="t.id"
         draggable="true"
-        class="group flex h-full max-w-56 min-w-28 cursor-default items-center gap-2 rounded-t-md border border-b-0 px-3 text-xs select-none"
+        class="group flex h-full max-w-56 min-w-28 cursor-pointer items-center gap-2 rounded-t-md border border-b-0 px-3 text-xs select-none"
         :class="
           t.id === focused
             ? 'bg-background text-foreground'

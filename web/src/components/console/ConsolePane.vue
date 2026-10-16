@@ -75,6 +75,35 @@ watch(
   { immediate: true },
 )
 
+// A revert restarts the VM's QEMU, which the console would report as a
+// broken connection: disconnect cleanly first, and connect again when the
+// revert is done (the VM comes back up, from wherever it was reverted).
+// (Until it reconnects, the pane says it's reverting.)
+const reverting = ref(false)
+watch(
+  () => vm.value?.action,
+  (action, prev) => {
+    if (action === 'revert') {
+      if (ctl.status.value === 'connected' || ctl.status.value === 'connecting') {
+        reverting.value = true
+        ctl.disconnect()
+      }
+      return
+    }
+    if (prev !== 'revert' || !reverting.value) return
+    // If the VM is seen coming back up, the running watch connects; this
+    // covers it staying up throughout (a snapshot with memory).
+    autoConnect = true
+    setTimeout(() => {
+      reverting.value = false
+      if (running.value && ctl.status.value !== 'connected' && ctl.status.value !== 'connecting') {
+        autoConnect = false
+        ctl.reconnect()
+      }
+    }, 1500)
+  },
+)
+
 watch(ctl.protocol, (protocol) => protocol && emit('protocol', protocol))
 
 const powerError = ref<string>()
@@ -150,6 +179,10 @@ defineExpose({ ctl, vm, upload: () => dropUpload.value?.pickFiles() })
             </Button>
             <Button variant="outline" @click="router.push('/')">Back to machines</Button>
           </div>
+        </template>
+        <template v-else-if="vm.action === 'revert' || reverting">
+          <Spinner class="size-5" />
+          <p class="text-sm">Reverting to the snapshot…</p>
         </template>
         <template v-else-if="ctl.status.value === 'connecting' || ctl.status.value === 'idle'">
           <Spinner class="size-5" />

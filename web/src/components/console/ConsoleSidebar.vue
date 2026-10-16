@@ -8,12 +8,15 @@ import {
   Clipboard,
   ClipboardX,
   Copy,
+  History,
   Keyboard,
   Maximize,
   Minimize,
   Monitor,
   Plug,
   RefreshCw,
+  RotateCcw,
+  Save,
   Send,
   SquareTerminal,
   Upload,
@@ -24,9 +27,12 @@ import {
 } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import type { VM } from '@/api'
+import { api, errorMessage, type VM } from '@/api'
+import ActionProgressBar from '@/components/ActionProgressBar.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Spinner } from '@/components/ui/spinner'
 import { Kbd } from '@/components/ui/kbd'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
@@ -37,6 +43,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import type { ConsoleController } from '@/composables/useConsole'
 import { type ClipboardReadState, requestClipboardRead, watchClipboardRead } from '@/consoles/clipboard'
 import { consoleDrivers } from '@/consoles/registry'
+import { actionLabels, formatAgo } from '@/lib/format'
 import type { ConsoleProtocol, ScaleMode } from '@/consoles/types'
 import AgentPanel from './AgentPanel.vue'
 import SidebarSection from './SidebarSection.vue'
@@ -52,9 +59,10 @@ const emit = defineEmits<{ toggleFullscreen: []; openVm: []; upload: [] }>()
 
 const c = props.console
 
-const statusLabel = computed(
-  () =>
-    ({
+const statusLabel = computed(() =>
+  props.vm?.action === 'revert'
+    ? 'Reverting to snapshot'
+    : ({
       idle: 'Idle',
       connecting: 'Connecting',
       connected: 'Connected',
@@ -62,9 +70,10 @@ const statusLabel = computed(
       error: 'Error',
     })[c.status.value],
 )
-const statusColor = computed(
-  () =>
-    ({
+const statusColor = computed(() =>
+  props.vm?.action === 'revert'
+    ? 'bg-amber-500 animate-pulse'
+    : ({
       idle: 'bg-muted-foreground',
       connecting: 'bg-amber-500 animate-pulse',
       connected: 'bg-emerald-500',
@@ -183,6 +192,31 @@ function screenshot() {
   }, 'image/png')
 }
 
+// Snapshot, revert and force reset, confirmed in the panel.
+const confirming = ref<'take' | 'revert' | 'reset' | null>(null)
+const withMemory = ref(true)
+const snapshotError = ref<string>()
+const snapshotReady = computed(() => props.vm?.state === 'ready' && !props.vm.action)
+function askSnapshot(kind: 'take' | 'revert' | 'reset') {
+  withMemory.value = true
+  snapshotError.value = undefined
+  confirming.value = kind
+}
+async function runSnapshot() {
+  const kind = confirming.value
+  const vm = props.vm
+  confirming.value = null
+  if (!vm) return
+  try {
+    if (kind === 'take') await api.takeSnapshot(vm.id, withMemory.value && vm.power === 'running')
+    // From the console, the VM always comes back up (booting, without memory).
+    else if (kind === 'revert') await api.revertSnapshot(vm.id, true)
+    else if (kind === 'reset') await api.power(vm.id, 'reset')
+  } catch (e) {
+    snapshotError.value = errorMessage(e)
+  }
+}
+
 const soundOn = computed({
   get: () => !c.audio.value.muted,
   set: (on: boolean) => {
@@ -237,60 +271,130 @@ const soundOn = computed({
           <SquarePlus /> New tab
         </Button>
       </header>
-      <div class="flex items-center gap-1 px-3 pb-3" role="toolbar" aria-label="Quick actions">
+      <div class="grid grid-cols-5 gap-1.5 px-4 pb-3" role="toolbar" aria-label="Quick actions">
         <Button
-          variant="ghost"
-          size="icon-sm"
+          variant="outline"
+          class="h-10"
+          :class="{
+            'border-destructive/60 bg-destructive/15 text-destructive hover:bg-destructive/25 hover:text-destructive':
+              !soundOn && c.capabilities.value?.audio,
+          }"
           :disabled="!c.capabilities.value?.audio"
-          :title="!c.capabilities.value?.audio ? 'No audio over this connection' : soundOn ? 'Mute' : 'Unmute'"
+          :title="!c.capabilities.value?.audio ? 'No audio over this connection' : soundOn ? 'Mute' : 'Guest audio is muted: click to unmute'"
           @click="soundOn = !soundOn"
         >
-          <Volume2 v-if="soundOn" /><VolumeX v-else />
+          <Volume2 v-if="soundOn" class="size-5" /><VolumeX v-else class="size-5" />
         </Button>
-        <Button variant="ghost" size="icon-sm" :title="fullscreen ? 'Exit fullscreen' : 'Fullscreen'" @click="emit('toggleFullscreen')">
-          <Minimize v-if="fullscreen" /><Maximize v-else />
+        <Button variant="outline" class="h-10" :title="fullscreen ? 'Exit fullscreen' : 'Fullscreen'" @click="emit('toggleFullscreen')">
+          <Minimize v-if="fullscreen" class="size-5" /><Maximize v-else class="size-5" />
         </Button>
         <Button
-          variant="ghost"
-          size="icon-sm"
+          variant="outline"
+          class="h-10"
           title="Send Ctrl+Alt+Del"
           :disabled="!connected"
           @click="sendCombo(['ControlLeft', 'AltLeft', 'Delete'])"
         >
-          <Keyboard />
+          <Keyboard class="size-5" />
         </Button>
         <Button
-          variant="ghost"
-          size="icon-sm"
+          variant="outline"
+          class="h-10"
           :title="c.clipboardSharing.value ? 'Clipboard sharing on (click to turn off)' : 'Clipboard sharing off (click to turn on)'"
           :class="{ 'text-muted-foreground': !c.clipboardSharing.value }"
           @click="c.clipboardSharing.value = !c.clipboardSharing.value"
         >
-          <Clipboard v-if="c.clipboardSharing.value" /><ClipboardX v-else />
+          <Clipboard v-if="c.clipboardSharing.value" class="size-5" /><ClipboardX v-else class="size-5" />
         </Button>
         <Button
-          variant="ghost"
-          size="icon-sm"
+          variant="outline"
+          class="h-10"
           title="Screenshot (downloads a PNG)"
           :disabled="!connected"
           :class="{ 'text-emerald-500': shot }"
           @click="screenshot"
         >
-          <Camera />
+          <Camera class="size-5" />
         </Button>
         <Button
-          variant="ghost"
-          size="icon-sm"
+          variant="outline"
+          class="h-10"
           :title="canUpload ? 'Upload files to the guest' : 'Uploading needs the Quicksand agent'"
           :disabled="!canUpload"
           @click="emit('upload')"
         >
-          <Upload />
+          <Upload class="size-5" />
         </Button>
-        <Button variant="ghost" size="icon-sm" title="Reconnect" class="ml-auto" @click="c.reconnect()">
-          <RefreshCw />
+        <Button
+          variant="outline"
+          class="h-10"
+          :title="vm?.snapshot ? 'Replace the snapshot' : 'Take a snapshot'"
+          :disabled="!snapshotReady"
+          @click="askSnapshot('take')"
+        >
+          <Save class="size-5" />
+        </Button>
+        <Button
+          variant="outline"
+          class="h-10"
+          :title="vm?.snapshot ? `Revert to the snapshot from ${formatAgo(vm.snapshot.takenAt)}` : 'No snapshot to revert to'"
+          :disabled="!snapshotReady || !vm?.snapshot"
+          @click="askSnapshot('revert')"
+        >
+          <History class="size-5" />
+        </Button>
+        <Button
+          variant="outline"
+          class="hover:text-destructive h-10"
+          title="Force reset (like pressing the reset button)"
+          :disabled="!snapshotReady || vm?.power !== 'running'"
+          @click="askSnapshot('reset')"
+        >
+          <RotateCcw class="size-5" />
         </Button>
       </div>
+
+      <!-- Confirmations, in the panel so they also work in fullscreen. -->
+      <div v-if="confirming" class="bg-muted/50 mx-4 mb-3 flex flex-col gap-3 rounded-lg border p-3">
+        <template v-if="confirming === 'take'">
+          <p class="text-sm font-medium">{{ vm?.snapshot ? 'Replace the snapshot?' : 'Take a snapshot?' }}</p>
+          <p class="text-muted-foreground text-xs">
+            Saves the disks{{ vm?.power === 'running' ? ' and, if you like, the memory' : '' }}.
+            <template v-if="vm?.snapshot"> The one from {{ formatAgo(vm.snapshot.takenAt) }} is replaced.</template>
+          </p>
+          <div v-if="vm?.power === 'running'" class="flex items-center gap-2">
+            <Checkbox id="quick-snapshot-memory" v-model="withMemory" />
+            <Label for="quick-snapshot-memory" class="text-xs">Include memory</Label>
+          </div>
+        </template>
+        <template v-else-if="confirming === 'reset'">
+          <p class="text-sm font-medium">Force reset {{ vm?.name }}?</p>
+          <p class="text-muted-foreground text-xs">
+            Restarts the VM at once, like pressing its reset button: unsaved work in the guest is lost.
+          </p>
+        </template>
+        <template v-else>
+          <p class="text-sm font-medium">Revert to the snapshot?</p>
+          <p class="text-muted-foreground text-xs">
+            Everything since it was taken ({{ vm?.snapshot ? formatAgo(vm.snapshot.takenAt) : '' }}) is lost.
+            {{ vm?.snapshot?.memory ? 'The VM resumes as it was.' : "It doesn't include memory, so the VM boots afresh." }}
+            The snapshot is kept.
+          </p>
+        </template>
+        <div class="flex justify-end gap-2">
+          <Button variant="outline" size="sm" @click="confirming = null">Cancel</Button>
+          <Button size="sm" :variant="confirming === 'take' ? 'default' : 'destructive'" @click="runSnapshot">
+            {{ confirming === 'take' ? (vm?.snapshot ? 'Replace' : 'Take snapshot') : confirming === 'reset' ? 'Reset' : 'Revert' }}
+          </Button>
+        </div>
+      </div>
+      <div v-if="vm?.action === 'snapshot' || vm?.action === 'revert' || vm?.action === 'reset'" class="mx-4 mb-3">
+        <ActionProgressBar v-if="vm.actionProgress" :progress="vm.actionProgress" />
+        <p v-else class="flex items-center gap-1.5 text-xs"><Spinner class="size-3" /> {{ actionLabels[vm.action] }}…</p>
+      </div>
+      <p v-if="snapshotError || vm?.actionError" class="text-destructive mx-4 mb-3 text-xs">
+        {{ snapshotError || vm?.actionError }}
+      </p>
       <Separator />
 
       <div class="flex-1 overflow-y-auto">

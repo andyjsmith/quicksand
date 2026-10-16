@@ -52,9 +52,11 @@ func (c *Client) CreateSnapshot(ctx context.Context, node string, vmid int, name
 }
 
 // RollbackSnapshot returns a guest to a snapshot, keeping the snapshot.
-func (c *Client) RollbackSnapshot(ctx context.Context, node string, vmid int, name string) (UPID, error) {
+func (c *Client) RollbackSnapshot(ctx context.Context, node string, vmid int, name string, start bool) (UPID, error) {
 	var upid UPID
-	err := c.do(ctx, http.MethodPost, vmPath(node, vmid, "snapshot", name, "rollback"), url.Values{}, &upid)
+	// Proxmox starts the VM anyway when the snapshot includes its memory.
+	err := c.do(ctx, http.MethodPost, vmPath(node, vmid, "snapshot", name, "rollback"),
+		url.Values{"start": {boolParam(start)}}, &upid)
 	return upid, err
 }
 

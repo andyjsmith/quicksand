@@ -208,10 +208,11 @@ func (s *Service) runTakeSnapshot(ctx context.Context, vm store.VM, replace, mem
 
 // RevertSnapshot returns a VM to its snapshot, which it keeps. A snapshot
 // with memory resumes the VM as it was; one without leaves it stopped.
-func (s *Service) RevertSnapshot(ctx context.Context, vm store.VM) error {
+// With start, a VM whose snapshot has no memory is started afterwards too.
+func (s *Service) RevertSnapshot(ctx context.Context, vm store.VM, start bool) error {
 	return s.snapshotAction(ctx, vm, ActionRevert, func(ctx context.Context) error {
 		err := s.runTask(ctx, vm, func() (pve.UPID, error) {
-			return s.pve.RollbackSnapshot(ctx, vm.Node, vm.VMID, snapshotName)
+			return s.pve.RollbackSnapshot(ctx, vm.Node, vm.VMID, snapshotName, start)
 		}, nil)
 		if err == nil {
 			// The rollback restores the VM's config as it was, link NIC and

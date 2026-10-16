@@ -164,7 +164,14 @@ func (s *Server) handleRevertSnapshot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.vms.RevertSnapshot(r.Context(), vm); err != nil {
+	req := struct {
+		// Start the VM afterwards even when the snapshot has no memory.
+		Start bool `json:"start"`
+	}{}
+	if r.ContentLength != 0 && !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := s.vms.RevertSnapshot(r.Context(), vm, req.Start); err != nil {
 		writeServiceError(w, err)
 		return
 	}

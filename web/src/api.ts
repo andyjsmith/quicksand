@@ -290,8 +290,8 @@ export const api = {
   destroy: (id: string) => request<void>('DELETE', vmPath(id)),
   /** Snapshots a VM (with its memory unless told not to), replacing its snapshot. */
   takeSnapshot: (id: string, memory: boolean) => request<void>('POST', `${vmPath(id)}/snapshot`, { memory }),
-  /** Returns a VM to its snapshot, which it keeps. */
-  revertSnapshot: (id: string) => request<void>('POST', `${vmPath(id)}/snapshot/revert`),
+  /** Returns a VM to its snapshot, which it keeps; with start, a snapshot without memory boots the VM too. */
+  revertSnapshot: (id: string, start = false) => request<void>('POST', `${vmPath(id)}/snapshot/revert`, { start }),
   deleteSnapshot: (id: string) => request<void>('DELETE', `${vmPath(id)}/snapshot`),
   /**
    * The guest clipboard through the agent; when its seq is `after`, waits
