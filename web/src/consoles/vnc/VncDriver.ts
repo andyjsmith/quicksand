@@ -10,6 +10,7 @@ import type {
   ConsoleDriver,
   ConsoleEvents,
   ConsoleSession,
+  DisplaySize,
   ScaleMode,
 } from '../types'
 
@@ -41,6 +42,7 @@ export class VncDriver implements ConsoleDriver {
   private container?: HTMLElement
   /** Resizes the guest through the agent; QEMU's VNC can't for Windows guests. */
   private resizer?: GuestResizer
+  private clipboardSharing = true
 
   on<K extends keyof ConsoleEvents>(event: K, handler: (payload: ConsoleEvents[K]) => void) {
     return this.events.on(event, handler)
@@ -57,16 +59,7 @@ export class VncDriver implements ConsoleDriver {
     })
     this.rfb = rfb
     rfb.background = 'transparent'
-    if (options.resizeGuest) {
-      this.resizer = new GuestResizer(options.resizeGuest, () => {
-        this.resizer = undefined
-        this.setScaleModes(['fit', 'none'])
-        this.applyScaleMode()
-      })
-      this.setScaleModes(['remote', 'fit', 'none'])
-      this.resizeObserver = new ResizeObserver(() => this.requestGuestSize())
-      this.resizeObserver.observe(container)
-    }
+    if (options.resizeGuest) this.setGuestResize(options.resizeGuest)
     this.applyScaleMode()
 
     rfb.addEventListener('connect', () => {
@@ -87,7 +80,7 @@ export class VncDriver implements ConsoleDriver {
     rfb.addEventListener('securityfailure', (e) =>
       this.events.emit('status', { status: 'error', message: e.detail.reason ?? 'Authentication failed' }),
     )
-    rfb.addEventListener('clipboard', (e) => this.events.emit('clipboard', e.detail.text))
+    rfb.addEventListener('clipboard', (e) => this.clipboardSharing && this.events.emit('clipboard', e.detail.text))
   }
 
   disconnect(): void {
@@ -122,6 +115,27 @@ export class VncDriver implements ConsoleDriver {
 
   async sendClipboard(text: string): Promise<void> {
     this.rfb?.clipboardPasteFrom(text)
+  }
+
+  setClipboardSharing(on: boolean): void {
+    this.clipboardSharing = on
+  }
+
+  setGuestResize(resize: (size: DisplaySize) => Promise<unknown>): void {
+    this.resizer?.stop()
+    clearTimeout(this.probeTimer)
+    this.resizer = new GuestResizer(resize, () => {
+      this.resizer = undefined
+      this.setScaleModes(['fit', 'none'])
+      this.applyScaleMode()
+    })
+    this.setScaleModes(['remote', 'fit', 'none'])
+    if (!this.resizeObserver && this.container) {
+      this.resizeObserver = new ResizeObserver(() => this.requestGuestSize())
+      this.resizeObserver.observe(this.container)
+    }
+    this.applyScaleMode()
+    this.requestGuestSize(0)
   }
 
   setScaleMode(mode: ScaleMode): void {

@@ -103,6 +103,17 @@ export interface ConsoleDriver {
   typeText(text: string): Promise<{ skipped: string[] }>
   /** Put text on the guest clipboard. */
   sendClipboard(text: string): Promise<void>
+  /**
+   * Starts resizing the guest through the Quicksand agent (see
+   * ConnectOptions.resizeGuest), for an agent that came up after connecting.
+   */
+  setGuestResize(resize: (size: DisplaySize) => Promise<unknown>, prefer: boolean): void
+  /**
+   * Turns automatic clipboard sharing on or off: guest copies reaching the
+   * local clipboard, and Ctrl+V pasting it into the guest. Off, the guest
+   * clipboard only changes through sendClipboard.
+   */
+  setClipboardSharing(on: boolean): void
   setScaleMode(mode: ScaleMode): void
   setAudio(settings: AudioSettings): void
   /** Retry audio playback the browser blocked. Call from a user gesture. */

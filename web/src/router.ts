@@ -14,7 +14,7 @@ export const router = createRouter({
   routes: [
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true } },
     { path: '/', name: 'dashboard', component: () => import('@/views/DashboardView.vue') },
-    { path: '/vms/:id', name: 'vm', component: () => import('@/views/VmView.vue'), props: true },
+    { path: '/vm/:id', name: 'vm', component: () => import('@/views/VmView.vue'), props: true },
     {
       path: '/console/:id',
       name: 'console',

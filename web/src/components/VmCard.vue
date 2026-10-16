@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Camera, CircleAlert, Link2, Monitor, Play, SquareTerminal, TriangleAlert } from '@lucide/vue'
+import { CircleAlert, Link2, Monitor, Play, Save, SquareTerminal, TriangleAlert } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { PowerAction, VM } from '@/api'
@@ -131,7 +131,7 @@ const primaryPower = computed<{ action: PowerAction; label: string } | null>(() 
             class="text-muted-foreground flex items-center gap-1"
             :title="`Snapshot taken ${new Date(vm.snapshot.takenAt).toLocaleString()}${vm.snapshot.memory ? ', with memory' : ''}`"
           >
-            · <Camera class="size-3" />
+            · <Save class="size-3" />
           </span>
         </span>
         <Button v-if="canConnect" size="sm" as-child>

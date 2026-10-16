@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  Camera,
   EllipsisVertical,
   History,
   Info,
@@ -11,6 +10,7 @@ import {
   Power,
   RotateCcw,
   RotateCw,
+  Save,
   Square,
   Trash2,
 } from '@lucide/vue'
@@ -154,7 +154,7 @@ defineExpose({ power })
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem :disabled="busy" @select="askSnapshot('take')">
-          <Camera /> {{ vm.snapshot ? 'Replace snapshot' : 'Take snapshot' }}
+          <Save /> {{ vm.snapshot ? 'Replace snapshot' : 'Take snapshot' }}
         </DropdownMenuItem>
         <template v-if="vm.snapshot">
           <DropdownMenuItem :disabled="busy" @select="askSnapshot('revert')">

@@ -397,6 +397,7 @@ watch(focused, () => sidebarKey.value++)
       :fullscreen="isFullscreen"
       @toggle-fullscreen="toggleFullscreen"
       @open-vm="openPicker"
+      @upload="panes.get(focused)?.upload()"
     />
   </div>
 </template>

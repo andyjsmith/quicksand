@@ -109,6 +109,18 @@ const totalSize = computed(() => toUpload.value.reduce((n, f) => n + f.size, 0))
 
 const queue = useUploadQueue(() => props.vm?.id ?? '')
 
+// Files can also be picked (the sidebar's upload button).
+const picker = useTemplateRef<HTMLInputElement>('picker')
+function pickFiles() {
+  if (canUpload.value) picker.value?.click()
+}
+function onPicked() {
+  const files = [...(picker.value?.files ?? [])]
+  if (picker.value) picker.value.value = ''
+  if (files.length) confirm(files, 0)
+}
+defineExpose({ pickFiles, canUpload })
+
 async function upload() {
   const path = await check()
   if (!path || !pending.value) return
@@ -130,6 +142,7 @@ function cancel() {
 </script>
 
 <template>
+  <input ref="picker" type="file" multiple class="hidden" @change="onPicked" />
   <!-- Drop target, while dragging files over the console. -->
   <div
     v-if="dragging"
@@ -158,7 +171,7 @@ function cancel() {
       <div>
         <h2 class="text-base font-semibold">Upload to {{ vm?.name }}?</h2>
         <p class="text-muted-foreground text-sm">
-          {{ pending.length }} file{{ pending.length === 1 ? '' : 's' }} were dropped on the console.
+          {{ pending.length }} file{{ pending.length === 1 ? '' : 's' }} to copy into the guest.
         </p>
       </div>
       <ul class="bg-muted/50 max-h-36 overflow-y-auto rounded-md border px-3 py-2 text-xs">

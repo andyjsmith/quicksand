@@ -18,7 +18,9 @@ const now = useMinuteClock()
 const auth = useAuth()
 const state = computed(() => expiryState(props.vm, now.value.getTime()))
 const canExtend = computed(() => !!state.value && (state.value.canExtend || !!auth.user.value?.isAdmin))
-const extendLabel = computed(() => (props.vm.extendSeconds ? `+${formatRemaining(props.vm.extendSeconds * 1000)}` : 'Extend'))
+const extendLabel = computed(() =>
+  props.vm.extendSeconds ? `Extend ${formatRemaining(props.vm.extendSeconds * 1000)}` : 'Extend',
+)
 const title = computed(() => {
   if (!props.vm.expiresAt) return ''
   const left =

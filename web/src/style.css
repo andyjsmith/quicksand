@@ -55,7 +55,7 @@
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.145 0 0);
     --primary: oklch(0.852 0.199 91.936);
-    --primary-foreground: oklch(0.421 0.095 57.708);
+    --primary-foreground: oklch(0 0 0);
     --secondary: oklch(0.967 0.001 286.375);
     --secondary-foreground: oklch(0.21 0.006 285.885);
     --muted: oklch(0.97 0 0);
@@ -90,7 +90,7 @@
     --popover: oklch(0.205 0 0);
     --popover-foreground: oklch(0.985 0 0);
     --primary: oklch(0.795 0.184 86.047);
-    --primary-foreground: oklch(0.421 0.095 57.708);
+    --primary-foreground: oklch(0 0 0);
     --secondary: oklch(0.274 0.006 286.033);
     --secondary-foreground: oklch(0.985 0 0);
     --muted: oklch(0.269 0 0);
@@ -124,4 +124,22 @@
     @apply bg-background text-foreground;
     @apply font-sans;
     }
+  /* Tailwind's reset gives buttons the default cursor; everything clickable
+     gets the pointer instead, including the menu items, options, tabs and
+     toggles the UI components render as other elements. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([data-disabled]),
+  [role="menuitemcheckbox"]:not([data-disabled]),
+  [role="menuitemradio"]:not([data-disabled]),
+  [role="option"]:not([data-disabled]),
+  [role="tab"]:not([data-disabled]),
+  [role="checkbox"]:not([data-disabled]),
+  [role="switch"]:not([data-disabled]),
+  [role="radio"]:not([data-disabled]),
+  label:has(input:not(:disabled), button:not(:disabled)),
+  select:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
 }

@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { ArrowLeft, CircleAlert, Monitor, SquareTerminal, TriangleAlert } from '@lucide/vue'
+import { ArrowLeft, CircleAlert, Monitor, SquareTerminal } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import ActionProgressBar from '@/components/ActionProgressBar.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import AgentPanel from '@/components/console/AgentPanel.vue'
 import ExpiryBadge from '@/components/ExpiryBadge.vue'
 import VmActionsMenu from '@/components/VmActionsMenu.vue'
 import ConnectionsTab from '@/components/vm/ConnectionsTab.vue'
 import FilesTab from '@/components/vm/FilesTab.vue'
 import FirewallTab from '@/components/vm/FirewallTab.vue'
+import OverviewTab from '@/components/vm/OverviewTab.vue'
 import ProcessesTab from '@/components/vm/ProcessesTab.vue'
 import ShellTab from '@/components/vm/ShellTab.vue'
 import { useMachines } from '@/composables/useMachines'
-import { formatMemory, formatUptime, vmStatus } from '@/lib/format'
+import { vmStatus } from '@/lib/format'
 
 const props = defineProps<{ id: string }>()
 
@@ -32,23 +32,6 @@ const agentReady = computed(() => running.value && vm.value?.agent?.status === '
 const shellReady = computed(() => agentReady.value || (running.value && !!vm.value?.serial))
 const tab = ref('overview')
 
-const details = computed(() => {
-  const v = vm.value
-  if (!v) return []
-  return [
-    ['Template', v.templateName],
-    ['Proxmox VM ID', String(v.vmid)],
-    ['CPUs', String(v.cores)],
-    ['Memory', formatMemory(v.memoryMiB)],
-    ['Network', v.networkLabel],
-    ['Uptime', running.value ? formatUptime(v.uptime) : ''],
-    ['Agent', v.agent ? `${v.agent.status} (${v.agent.ip})` : 'none'],
-    ['Guest', v.agent?.hostname ? `${v.agent.hostname} · ${v.agent.os} · agent ${v.agent.version}` : ''],
-    ['Created', new Date(v.createdAt).toLocaleString()],
-    ['Link network', v.link ? `${v.link.name} · ${v.link.address}` : ''],
-    ['Snapshot', v.snapshot ? `${new Date(v.snapshot.takenAt).toLocaleString()}${v.snapshot.memory ? ' (with memory)' : ' (disks only)'}` : ''],
-  ].filter(([, value]) => value)
-})
 </script>
 
 <template>
@@ -91,35 +74,8 @@ const details = computed(() => {
             <TabsTrigger value="shell" :disabled="!shellReady">Shell</TabsTrigger>
             <TabsTrigger value="firewall" :disabled="vm.state !== 'ready'">Firewall</TabsTrigger>
           </TabsList>
-          <TabsContent value="overview" class="flex flex-col gap-6 pt-2">
-            <div
-              v-if="vm.link?.status === 'manual'"
-              class="flex max-w-2xl gap-2.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm"
-            >
-              <TriangleAlert class="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-              <div class="flex flex-col gap-1">
-                <p class="font-medium">Set this machine's link network address yourself</p>
-                <p class="text-muted-foreground">
-                  {{ vm.link.error ? `${vm.link.error}, so it` : 'It has no agent to do it, so it' }} can't reach
-                  {{ vm.link.name }} until you do. In the guest, give the network adapter with MAC
-                  <code class="text-foreground">{{ vm.link.mac }}</code> the static address
-                  <code class="text-foreground">{{ vm.link.address }}</code>, with no gateway.
-                </p>
-              </div>
-            </div>
-            <dl class="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">
-              <template v-for="[label, value] in details" :key="label">
-                <dt class="text-muted-foreground">{{ label }}</dt>
-                <dd>{{ value }}</dd>
-              </template>
-            </dl>
-            <section v-if="vm.agent && running" class="flex max-w-2xl flex-col gap-2">
-              <h2 class="text-sm font-semibold">Run a command</h2>
-              <AgentPanel :vm="vm" />
-            </section>
-            <p v-else-if="vm.agent" class="text-muted-foreground text-sm">
-              Start the VM to use its agent.
-            </p>
+          <TabsContent value="overview" class="pt-2">
+            <OverviewTab :vm="vm" />
           </TabsContent>
           <TabsContent value="processes" class="pt-2">
             <ProcessesTab v-if="agentReady" :vm="vm" />
@@ -130,10 +86,10 @@ const details = computed(() => {
           <TabsContent value="files" class="pt-2">
             <FilesTab v-if="agentReady" :vm="vm" />
           </TabsContent>
-          <!-- Kept mounted so a session survives switching tabs. -->
           <TabsContent value="firewall" class="pt-2">
             <FirewallTab :vm="vm" />
           </TabsContent>
+          <!-- Kept mounted so a session survives switching tabs. -->
           <TabsContent value="shell" force-mount class="pt-2 data-[state=inactive]:hidden">
             <ShellTab v-if="shellReady" :vm="vm" />
           </TabsContent>

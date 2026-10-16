@@ -43,6 +43,8 @@ export function useConsole(
 
   const scaleMode = useLocalStorage<ScaleMode>('quicksand.scaleMode', 'remote')
   const audio = useLocalStorage<AudioSettings>('quicksand.audio', { muted: false, volume: 0.8 })
+  /** Automatic clipboard sharing with the guest, whichever way it's done. */
+  const clipboardSharing = useLocalStorage('quicksand.clipboardSharing', true)
 
   // Guards against a slower, superseded connect() finishing last.
   let generation = 0
@@ -73,6 +75,7 @@ export function useConsole(
       d.on('clipboard', (text) => (guestClipboard.value = text))
       d.on('audio', (a) => (audioStatus.value = a.status))
       driver.value = d
+      d.setClipboardSharing(clipboardSharing.value)
       const id = vmId.value
       const guestResize = canResizeGuest?.(to) ?? false
       d.connect(container.value, session, {
@@ -114,7 +117,8 @@ export function useConsole(
       status.value === 'connected' &&
       !capabilities.value?.clipboardSync &&
       !!agentConnected?.() &&
-      !agentClipboardError.value,
+      !agentClipboardError.value &&
+      clipboardSharing.value,
   )
   // The text last pasted, which comes back as a guest clipboard change and
   // mustn't overwrite whatever is copied locally since.
@@ -169,6 +173,21 @@ export function useConsole(
     }
   }
 
+  // Whenever the agent comes (back) up after connecting (the VM was still
+  // booting, or the agent restarted), resize through it afresh: a resizer
+  // that failed while the agent was down gives up.
+  watch(
+    () => !!agentConnected?.(),
+    (up, wasUp) => {
+      if (!up || wasUp || !driver.value || !protocol.value) return
+      const mode = canResizeGuest?.(protocol.value)
+      if (!mode) return
+      const id = vmId.value
+      driver.value.setGuestResize((size) => api.setDisplay(id, size.width, size.height), mode === 'prefer')
+    },
+  )
+
+  watch(clipboardSharing, (on) => driver.value?.setClipboardSharing(on))
   watch(scaleMode, (mode) => driver.value?.setScaleMode(mode))
   watch(audio, (a) => driver.value?.setAudio({ ...a }), { deep: true })
 
@@ -190,6 +209,7 @@ export function useConsole(
     /** Why the agent can't share the clipboard, when it tried. */
     agentClipboardError,
     audioStatus,
+    clipboardSharing,
     scaleMode,
     audio,
     connect,

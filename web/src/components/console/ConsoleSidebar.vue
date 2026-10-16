@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import {
   ArrowLeft,
+  Camera,
   CircleAlert,
   ChevronLeft,
   ChevronRight,
   Clipboard,
+  ClipboardX,
   Copy,
   Keyboard,
   Maximize,
@@ -14,6 +16,7 @@ import {
   RefreshCw,
   Send,
   SquareTerminal,
+  Upload,
   Unplug,
   Volume2,
   VolumeX,
@@ -45,7 +48,7 @@ const props = defineProps<{
 }>()
 
 const open = defineModel<boolean>('open', { required: true })
-const emit = defineEmits<{ toggleFullscreen: []; openVm: [] }>()
+const emit = defineEmits<{ toggleFullscreen: []; openVm: []; upload: [] }>()
 
 const c = props.console
 
@@ -161,6 +164,25 @@ const audioStatusText = computed(
     })[c.audioStatus.value],
 )
 
+// Quick actions.
+const canUpload = computed(() => props.vm?.agent?.status === 'connected')
+const shot = ref(false)
+function screenshot() {
+  const canvas = c.snapshot()
+  if (!canvas) return
+  canvas.toBlob((blob) => {
+    if (!blob) return
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `${props.vm?.name ?? 'console'}-${stamp}.png`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+    shot.value = true
+    setTimeout(() => (shot.value = false), 800)
+  }, 'image/png')
+}
+
 const soundOn = computed({
   get: () => !c.audio.value.muted,
   set: (on: boolean) => {
@@ -194,7 +216,15 @@ const soundOn = computed({
       v-if="open"
       class="bg-background/95 text-foreground absolute inset-y-0 left-0 z-20 flex w-80 max-w-[90vw] flex-col border-r shadow-xl backdrop-blur"
     >
-      <header class="flex items-start gap-2 px-4 pt-4 pb-3">
+      <div class="flex items-center justify-between px-2 pt-2">
+        <Button variant="ghost" size="sm" as-child>
+          <RouterLink to="/"><ArrowLeft /> Back to machines</RouterLink>
+        </Button>
+        <Button variant="ghost" size="icon-sm" title="Close panel" @click="open = false">
+          <ChevronLeft />
+        </Button>
+      </div>
+      <header class="flex items-start gap-2 px-4 pt-2 pb-3">
         <div class="min-w-0 flex-1">
           <h2 class="truncate text-sm font-semibold">{{ vm?.name ?? 'Console' }}</h2>
           <p class="text-muted-foreground flex items-center gap-1.5 text-xs">
@@ -203,13 +233,62 @@ const soundOn = computed({
             <template v-if="vm"> · {{ vm.templateName }}</template>
           </p>
         </div>
-        <Button variant="ghost" size="icon-sm" title="Close panel" @click="open = false">
-          <ChevronLeft />
+        <Button variant="outline" size="sm" title="Open another VM in a new tab" @click="emit('openVm')">
+          <SquarePlus /> New tab
         </Button>
       </header>
-      <div class="px-4 pb-3">
-        <Button variant="outline" size="sm" class="w-full" @click="emit('openVm')">
-          <SquarePlus /> Open another VM
+      <div class="flex items-center gap-1 px-3 pb-3" role="toolbar" aria-label="Quick actions">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          :disabled="!c.capabilities.value?.audio"
+          :title="!c.capabilities.value?.audio ? 'No audio over this connection' : soundOn ? 'Mute' : 'Unmute'"
+          @click="soundOn = !soundOn"
+        >
+          <Volume2 v-if="soundOn" /><VolumeX v-else />
+        </Button>
+        <Button variant="ghost" size="icon-sm" :title="fullscreen ? 'Exit fullscreen' : 'Fullscreen'" @click="emit('toggleFullscreen')">
+          <Minimize v-if="fullscreen" /><Maximize v-else />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          title="Send Ctrl+Alt+Del"
+          :disabled="!connected"
+          @click="sendCombo(['ControlLeft', 'AltLeft', 'Delete'])"
+        >
+          <Keyboard />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          :title="c.clipboardSharing.value ? 'Clipboard sharing on (click to turn off)' : 'Clipboard sharing off (click to turn on)'"
+          :class="{ 'text-muted-foreground': !c.clipboardSharing.value }"
+          @click="c.clipboardSharing.value = !c.clipboardSharing.value"
+        >
+          <Clipboard v-if="c.clipboardSharing.value" /><ClipboardX v-else />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          title="Screenshot (downloads a PNG)"
+          :disabled="!connected"
+          :class="{ 'text-emerald-500': shot }"
+          @click="screenshot"
+        >
+          <Camera />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          :title="canUpload ? 'Upload files to the guest' : 'Uploading needs the Quicksand agent'"
+          :disabled="!canUpload"
+          @click="emit('upload')"
+        >
+          <Upload />
+        </Button>
+        <Button variant="ghost" size="icon-sm" title="Reconnect" class="ml-auto" @click="c.reconnect()">
+          <RefreshCw />
         </Button>
       </div>
       <Separator />
@@ -246,9 +325,6 @@ const soundOn = computed({
               <Unplug /> Disconnect
             </Button>
           </div>
-          <Button variant="ghost" as-child class="justify-start">
-            <RouterLink to="/"><ArrowLeft /> Back to machines</RouterLink>
-          </Button>
         </SidebarSection>
         <Separator />
 
@@ -270,19 +346,13 @@ const soundOn = computed({
             class="text-muted-foreground text-xs"
           >
             The guest can't be resized
-            {{ c.protocol.value === 'spice' ? 'until the SPICE agent connects' : 'over this connection' }}; scaling instead.
+            <template v-if="vm?.agent">until the Quicksand agent{{ c.protocol.value === 'spice' ? ' or SPICE agent' : '' }} connects</template>
+            <template v-else-if="c.protocol.value === 'spice'">until the SPICE agent connects</template>
+            <template v-else>over this connection</template>; scaling instead.
           </p>
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-muted-foreground text-xs">
-              <template v-if="c.resolution.value">
-                Guest resolution {{ c.resolution.value.width }}×{{ c.resolution.value.height }}
-              </template>
-            </span>
-            <Button variant="outline" @click="emit('toggleFullscreen')">
-              <component :is="fullscreen ? Minimize : Maximize" />
-              {{ fullscreen ? 'Exit fullscreen' : 'Fullscreen' }}
-            </Button>
-          </div>
+          <p v-if="c.resolution.value" class="text-muted-foreground text-xs">
+            Guest resolution {{ c.resolution.value.width }}×{{ c.resolution.value.height }}
+          </p>
         </SidebarSection>
         <Separator />
 
@@ -317,8 +387,14 @@ const soundOn = computed({
         <Separator />
 
         <SidebarSection title="Clipboard" :icon="Clipboard">
+          <div v-if="!c.clipboardSharing.value" class="flex flex-col gap-2">
+            <p class="text-muted-foreground text-xs">
+              Clipboard sharing is off: copies in the guest stay there, and Ctrl+V pastes the guest's own clipboard.
+            </p>
+            <Button variant="outline" size="sm" @click="c.clipboardSharing.value = true"><Clipboard /> Turn on</Button>
+          </div>
           <template
-            v-if="c.capabilities.value?.clipboardSync || c.capabilities.value?.clipboardSend || c.agentClipboard.value"
+            v-else-if="c.capabilities.value?.clipboardSync || c.capabilities.value?.clipboardSend || c.agentClipboard.value"
           >
             <p v-if="c.agentClipboard.value" class="text-muted-foreground text-xs">
               Shared through the Quicksand agent: copying in the guest updates your clipboard, and

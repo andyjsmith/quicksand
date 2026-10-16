@@ -20,6 +20,7 @@ import type {
   ConsoleDriver,
   ConsoleEvents,
   ConsoleSession,
+  DisplaySize,
   ScaleMode,
 } from '../types'
 import { DisplayLayout, websocketURL } from '../layout'
@@ -71,6 +72,8 @@ export class SpiceDriver implements ConsoleDriver {
   private clipboardText: string | null = null
   /** The browser lets us read the clipboard without prompting (Chromium, once granted). */
   private canReadClipboard = false
+  /** Automatic clipboard sharing (see setClipboardSharing). */
+  private clipboardSharing = true
   /** spice-html5's clipboard grab, before it is gated on canReadClipboard. */
   private grabClipboard?: () => void
   private cleanups: (() => void)[] = []
@@ -82,18 +85,7 @@ export class SpiceDriver implements ConsoleDriver {
   connect(container: HTMLElement, session: ConsoleSession, options: ConnectOptions): void {
     this.scaleMode = options.scaleMode
     this.audio = options.audio
-    if (options.resizeGuest) {
-      this.preferResizer = !!options.preferResizeGuest
-      this.resizer = new GuestResizer(options.resizeGuest, () => {
-        if (!this.sc?.agent_connected) {
-          this.capabilities = { ...this.capabilities, scaleModes: ['fit', 'none'] }
-          this.events.emit('capabilities', this.capabilities)
-        }
-        this.layout?.setMode(this.effectiveScaleMode())
-      })
-      this.capabilities = { ...this.capabilities, scaleModes: ['remote', 'fit', 'none'] }
-      this.events.emit('capabilities', this.capabilities)
-    }
+    if (options.resizeGuest) this.setGuestResize(options.resizeGuest, !!options.preferResizeGuest)
 
     const screen = document.createElement('div')
     screen.id = `quicksand-spice-screen-${nextScreenId++}`
@@ -237,6 +229,26 @@ export class SpiceDriver implements ConsoleDriver {
     return true
   }
 
+  setClipboardSharing(on: boolean): void {
+    this.clipboardSharing = on
+  }
+
+  setGuestResize(resize: (size: DisplaySize) => Promise<unknown>, prefer: boolean): void {
+    this.resizer?.stop()
+    this.preferResizer = prefer
+    this.resizer = new GuestResizer(resize, () => {
+      if (!this.sc?.agent_connected) {
+        this.capabilities = { ...this.capabilities, scaleModes: ['fit', 'none'] }
+        this.events.emit('capabilities', this.capabilities)
+      }
+      this.layout?.setMode(this.effectiveScaleMode())
+    })
+    this.capabilities = { ...this.capabilities, scaleModes: ['remote', 'fit', 'none'] }
+    this.events.emit('capabilities', this.capabilities)
+    this.layout?.setMode(this.effectiveScaleMode())
+    this.scheduleRemoteResize(0)
+  }
+
   /**
    * Resizing the guest needs the SPICE agent or the Quicksand agent;
    * without either, fall back to scaling.
@@ -307,6 +319,7 @@ export class SpiceDriver implements ConsoleDriver {
 
     const receive = sc.handle_clipboard_receive
     sc.handle_clipboard_receive = function (agentData) {
+      if (!driver.clipboardSharing) return
       receive.call(this, agentData)
       const msg = new SpiceMsgClipboardReceive(agentData, this.agent_caps)
       if (msg.type !== Constants.VD_AGENT_CLIPBOARD_UTF8_TEXT) return
@@ -321,7 +334,7 @@ export class SpiceDriver implements ConsoleDriver {
     const grab = sc.send_clipboard_grab
     this.grabClipboard = () => grab.call(sc)
     sc.send_clipboard_grab = function () {
-      if (driver.canReadClipboard) grab.call(this)
+      if (driver.canReadClipboard && driver.clipboardSharing) grab.call(this)
     }
 
     // The guest asks for the clipboard contents it was promised.
@@ -332,6 +345,10 @@ export class SpiceDriver implements ConsoleDriver {
           new SpiceMsgClipboardSend(Constants.VD_AGENT_CLIPBOARD_UTF8_TEXT!, text, this.agent_caps),
         )
       const fallback = () => sendText(driver.clipboardText ?? '')
+      if (!driver.clipboardSharing) {
+        sendText('')
+        return
+      }
       // Never read unprompted where the browser would ask the user (Firefox
       // shows a "Paste" popup for every read).
       if (!driver.canReadClipboard) {
@@ -349,7 +366,7 @@ export class SpiceDriver implements ConsoleDriver {
   private interceptPaste(container: HTMLElement): void {
     this.cleanups.push(
       interceptPaste(container, {
-        active: () => !!this.sc?.agent_connected,
+        active: () => !!this.sc?.agent_connected && this.clipboardSharing,
         deliver: (text) => {
           this.offerClipboard(text)
           return new Promise((resolve) => setTimeout(resolve, PASTE_KEY_DELAY_MS))

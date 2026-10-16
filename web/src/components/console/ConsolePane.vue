@@ -98,7 +98,8 @@ watch(ctl.status, (status) => {
   if (status === 'connected') setTimeout(capturePreview, 3000)
 })
 
-defineExpose({ ctl, vm })
+const dropUpload = useTemplateRef('dropUpload')
+defineExpose({ ctl, vm, upload: () => dropUpload.value?.pickFiles() })
 </script>
 
 <template>
@@ -183,6 +184,6 @@ defineExpose({ ctl, vm })
       <Volume2 class="size-3.5" /> Your browser blocked the guest's audio. Click to enable.
     </button>
 
-    <ConsoleDropUpload :vm="vm ?? null" :target="pane" @done="ctl.focus()" />
+    <ConsoleDropUpload ref="dropUpload" :vm="vm ?? null" :target="pane" @done="ctl.focus()" />
   </div>
 </template>
