@@ -2,7 +2,7 @@
 # Builds the guest agent for the platforms templates use, into dist/agent/.
 set -eu
 cd "$(dirname "$0")/.."
-version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+version=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
 out=dist/agent
 mkdir -p "$out"
 for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64; do

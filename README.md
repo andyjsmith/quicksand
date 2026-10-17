@@ -127,6 +127,22 @@ go test ./...
 cd web && npm run typecheck
 ```
 
+GitHub Actions (`.github/workflows/ci.yml`) runs the tests and builds the
+server, agent and CLI on every push and pull request. To release, tag the
+commit and push the tag:
+
+```sh
+git tag -a v1.2.0 -m "Short summary of the release"
+git push origin v1.2.0
+```
+
+The tag's workflow creates a GitHub release with the binaries and
+`SHA256SUMS`. The release notes are the tag's message followed by the
+commits since the previous tag. Tags with a suffix (`v1.2.0-rc.1`) become
+pre-releases. The newest release's files are always at
+`/releases/latest/download/<file>`. Create releases by pushing tags, not from
+GitHub's "Draft a new release" page: the workflow creates the release itself.
+
 Layout:
 
 | Path | What's there |

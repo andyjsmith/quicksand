@@ -1,0 +1,149 @@
+# Builds the server (with the web client embedded), the guest agent and the
+# qs CLI on every push and pull request. Pushing a version tag (v1.2.3,
+# v1.2.3-rc.1) also creates a GitHub release for the tag with the binaries.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Tag builds are versioned by the tag; others by git describe.
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l cmd internal web/*.go | tee /dev/stderr)"
+      - run: go vet ./...
+      - run: go test ./...
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: web
+      - run: npm run build # includes the type check
+        working-directory: web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: web/dist
+          retention-days: 1
+
+  server:
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: web/dist
+      - run: SKIP_WEB=1 ./scripts/build-server.sh
+      - run: tar -C dist -czf dist/quicksand-server-linux-amd64.tar.gz --transform 's,^server,quicksand-server,' server
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-server
+          path: dist/quicksand-server-linux-amd64.tar.gz
+          retention-days: 7
+
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: ./scripts/build-agent.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-agent
+          path: dist/agent
+          retention-days: 7
+
+  cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: ./scripts/build-cli.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-cli
+          path: dist/cli
+          retention-days: 7
+
+  # The release notes are the tag's message, if any, and the commits since
+  # the previous tag.
+  release:
+    if: github.ref_type == 'tag'
+    needs: [test, server, agent, cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # checkout replaces an annotated tag with a lightweight one; restore it
+      # so its message can be read.
+      - run: git fetch --force --tags
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: release
+          merge-multiple: true
+      - name: Checksums
+        working-directory: release
+        run: sha256sum * > SHA256SUMS
+      - name: Release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'v*' "$TAG^" 2>/dev/null || true)
+          {
+            if [ "$(git cat-file -t "$TAG")" = tag ]; then
+              git tag -l --format='%(contents)' "$TAG"
+              echo
+            fi
+            echo "## Changes"
+            echo
+            git log --no-merges --format='- %s' ${prev:+"$prev.."}"$TAG"
+          } > release-notes.md
+          cat release-notes.md
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=
+          case "$TAG" in *-*) prerelease=--prerelease ;; esac
+          gh release create "$TAG" release/* --verify-tag $prerelease \
+            --title "Quicksand $TAG" --notes-file release-notes.md
