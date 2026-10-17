@@ -8,6 +8,6 @@ out=dist/server
 mkdir -p "$out"
 [ "${SKIP_WEB:-}" = 1 ] || (cd web && npm ci --silent && npm run build --silent)
 CGO_ENABLED=0 GOOS=${GOOS:-linux} GOARCH=${GOARCH:-amd64} go build -trimpath -tags embedweb \
-	-ldflags "-s -w" -o "$out/quicksand" ./cmd/quicksand
+	-ldflags "-s -w -X quicksand/internal/version.Version=$version" -o "$out/quicksand" ./cmd/quicksand
 cp deploy/server/* "$out/"
 echo "built $version: $out"

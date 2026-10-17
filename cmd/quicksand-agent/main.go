@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"quicksand/internal/agent"
+	"quicksand/internal/version"
 )
 
 func defaultConfigPath() string {
@@ -48,11 +49,11 @@ func main() {
 	}
 	configPath := flag.String("config", defaultConfigPath(), "path to the agent configuration file")
 	logPath := flag.String("log", "", "append logs to this file instead of standard error")
-	version := flag.Bool("version", false, "print the version and exit")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
-	if *version {
-		fmt.Println(agent.Version)
+	if *showVersion {
+		fmt.Println(version.Version)
 		return
 	}
 	// A service has no console, so it always logs to a file.
@@ -81,7 +82,7 @@ func main() {
 		slog.Error("invalid config", "err", err)
 		os.Exit(1)
 	}
-	slog.Info("quicksand agent starting", "version", agent.Version)
+	slog.Info("quicksand agent starting", "version", version.Version)
 	if ok, err := runAsService(a.Run); ok || err != nil {
 		if err != nil {
 			slog.Error("service", "err", err)

@@ -79,6 +79,7 @@ func (s *Server) handlePrepareZip(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("a password is required"))
 		return
 	}
+	auditDetail(r, "%s (as an encrypted zip)", req.Path)
 	token := s.downloads.add(pendingDownload{
 		owner: auth.FromContext(r.Context()).ID, guest: g, file: g.File(req.Path), password: req.Password,
 	})

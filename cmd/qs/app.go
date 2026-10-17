@@ -50,6 +50,7 @@ func newApp() *cli.Command {
 				Category:  catAccount,
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "password", Usage: "sign in with a password even if the server has single sign-on"},
+					&cli.BoolFlag{Name: "token", Usage: "sign in with an API token made in the web client (asked for, or read from standard input)"},
 					&cli.StringFlag{Name: "fingerprint", Usage: "trust a server certificate with this SHA-256 `fingerprint`"},
 				},
 				Action:        cmdLogin,
@@ -57,6 +58,7 @@ func newApp() *cli.Command {
 			},
 			{Name: "logout", Usage: "sign out and forget the session", Category: catAccount, Action: cmdLogout},
 			{Name: "whoami", Usage: "show who you are signed in as", Category: catAccount, Action: cmdWhoami},
+			{Name: "version", Usage: "show qs's version, and the server's when signed in", Action: cmdVersion},
 
 			{
 				Name: "ls", Aliases: []string{"list"}, Usage: "list your VMs", Category: catMachines,

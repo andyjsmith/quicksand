@@ -21,12 +21,14 @@ import (
 	"quicksand/internal/httpapi"
 	"quicksand/internal/pve"
 	"quicksand/internal/store"
+	"quicksand/internal/version"
 	"quicksand/internal/vms"
 	"quicksand/web"
 )
 
 const usage = `Usage:
   quicksand [serve] [-config path] [-debug] [-dev-web URL]
+  quicksand version
   quicksand user add [-config path] [-admin] <username>
   quicksand user passwd [-config path] <username>
   quicksand user delete [-config path] <username>
@@ -54,11 +56,16 @@ func defaultConfig() string {
 func main() {
 	args := os.Args[1:]
 	cmd := "serve"
-	if len(args) > 0 && (args[0] == "serve" || args[0] == "user" || args[0] == "agent") {
+	if len(args) > 0 && (args[0] == "serve" || args[0] == "user" || args[0] == "agent" || args[0] == "version") {
 		cmd, args = args[0], args[1:]
+	}
+	if len(args) > 0 && (args[0] == "-version" || args[0] == "--version") {
+		cmd = "version"
 	}
 	var err error
 	switch cmd {
+	case "version":
+		fmt.Println("quicksand", version.Version)
 	case "serve":
 		err = serve(args)
 	case "user":
@@ -150,7 +157,7 @@ func serve(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go expireSessions(ctx, db)
+	go expireSessions(ctx, db, cfg.AuditRetention())
 	go service.RunExpiry(ctx)
 	go service.RunLinks(ctx)
 	go service.RunFirewall(ctx)
@@ -162,10 +169,10 @@ func serve(args []string) error {
 	}()
 
 	if cfg.TLS != nil {
-		slog.Info("listening (HTTPS)", "addr", cfg.Listen)
+		slog.Info("listening (HTTPS)", "addr", cfg.Listen, "version", version.Version)
 		err = srv.ListenAndServeTLS(cfg.TLS.Cert, cfg.TLS.Key)
 	} else {
-		slog.Info("listening (HTTP)", "addr", cfg.Listen)
+		slog.Info("listening (HTTP)", "addr", cfg.Listen, "version", version.Version)
 		err = srv.ListenAndServe()
 	}
 	if !errors.Is(err, http.ErrServerClosed) {
@@ -174,12 +181,19 @@ func serve(args []string) error {
 	return nil
 }
 
-func expireSessions(ctx context.Context, db *store.Store) {
+// expireSessions hourly removes expired sessions and API tokens, and audit
+// log entries past their retention (cfg.AuditRetention).
+func expireSessions(ctx context.Context, db *store.Store, auditRetention time.Duration) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	for {
-		if err := db.DeleteExpiredSessions(ctx); err != nil && ctx.Err() == nil {
-			slog.Warn("delete expired sessions", "err", err)
+		for name, clean := range map[string]func(context.Context) error{
+			"sessions": db.DeleteExpiredSessions, "tokens": db.DeleteDeadTokens,
+			"audit log": func(ctx context.Context) error { return db.DeleteOldAudit(ctx, auditRetention) },
+		} {
+			if err := clean(ctx); err != nil && ctx.Err() == nil {
+				slog.Warn("clean up "+name, "err", err)
+			}
 		}
 		select {
 		case <-ctx.Done():

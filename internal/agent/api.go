@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"quicksand/internal/agentproto"
+	"quicksand/internal/version"
 )
 
 func (a *Agent) routes() http.Handler {
@@ -47,7 +48,7 @@ func (a *Agent) routes() http.Handler {
 func (a *Agent) handleInfo(w http.ResponseWriter, r *http.Request) {
 	info := agentproto.Info{
 		ProtocolVersion: agentproto.Version,
-		AgentVersion:    Version,
+		AgentVersion:    version.Version,
 		OS:              runtime.GOOS,
 		Arch:            runtime.GOARCH,
 		Time:            time.Now().UTC(),

@@ -48,7 +48,7 @@ func startServer(t *testing.T) (*client, string) {
 	var zipMu sync.Mutex
 	var zipReq struct{ Path, Password string }
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if ck, err := r.Cookie("quicksand_session"); err != nil || ck.Value != "s3cret" {
+		if r.Header.Get("Authorization") != "Bearer qst_test" {
 			http.Error(w, `{"error":"not signed in"}`, http.StatusUnauthorized)
 			return
 		}
@@ -151,7 +151,7 @@ func startServer(t *testing.T) (*client, string) {
 		agentproto.Join(client, conn)
 	}))
 	t.Cleanup(srv.Close)
-	s := settings{Server: srv.URL, Session: "s3cret", Fingerprint: certFingerprint(srv.Certificate().Raw)}
+	s := settings{Server: srv.URL, Token: "qst_test", Fingerprint: certFingerprint(srv.Certificate().Raw)}
 	// Commands read the settings from the user's config directory.
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", home)
@@ -191,11 +191,11 @@ func TestShellStream(t *testing.T) {
 	}
 
 	bad := *c
-	bad.Session = "wrong"
+	bad.Token = "qst_wrong"
 	if _, err := bad.stream("/api/vms/x/shell"); err == nil || err.(*apiError).Status != 401 {
 		t.Errorf("stream with a bad session: %v", err)
 	}
-	bad = *newClient(settings{Server: c.Server, Session: c.Session, Fingerprint: strings.Repeat("00", 32)})
+	bad = *newClient(settings{Server: c.Server, Token: c.Token, Fingerprint: strings.Repeat("00", 32)})
 	if _, err := bad.stream("/api/vms/x/shell"); err == nil || !strings.Contains(err.Error(), "fingerprint") {
 		t.Errorf("stream with the wrong fingerprint: %v", err)
 	}

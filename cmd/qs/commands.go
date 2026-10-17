@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"slices"
@@ -19,6 +20,7 @@ import (
 	"golang.org/x/term"
 
 	"quicksand/internal/agentproto"
+	"quicksand/internal/version"
 )
 
 type vm struct {
@@ -120,7 +122,7 @@ func signedIn() (*client, error) {
 
 func cmdLogin(ctx context.Context, cmd *cli.Command) error {
 	if cmd.NArg() != 1 {
-		return errors.New("usage: qs login [--password] [--fingerprint SHA256] <server URL>")
+		return errors.New("usage: qs login [--password | --token] [--fingerprint SHA256] <server URL>")
 	}
 	server := strings.TrimRight(cmd.Args().First(), "/")
 	if !strings.Contains(server, "://") {
@@ -139,6 +141,9 @@ func cmdLogin(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	c := newClient(s)
+	if cmd.Bool("token") {
+		return loginWithToken(c, in)
+	}
 	methods, err := c.authMethods()
 	if err != nil {
 		return err
@@ -146,7 +151,7 @@ func cmdLogin(ctx context.Context, cmd *cli.Command) error {
 	var username string
 	switch {
 	case methods.SSO != nil && (!cmd.Bool("password") || !methods.Password):
-		if s.Session, username, err = c.ssoLogin(methods.SSO.Name); err != nil {
+		if s.Token, username, err = c.ssoLogin(methods.SSO.Name); err != nil {
 			return err
 		}
 	case methods.Password:
@@ -159,7 +164,7 @@ func cmdLogin(ctx context.Context, cmd *cli.Command) error {
 		if err != nil {
 			return err
 		}
-		if s.Session, err = c.login(username, password); err != nil {
+		if s.Token, err = c.login(username, password); err != nil {
 			return err
 		}
 	default:
@@ -169,6 +174,47 @@ func cmdLogin(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "Signed in to %s as %s.\n", server, username)
+	return nil
+}
+
+// loginWithToken signs in with an API token made in the web client,
+// asked for (or read from standard input) so it stays out of the shell's
+// history.
+func loginWithToken(c *client, in *bufio.Reader) error {
+	fmt.Fprint(os.Stderr, "Token: ")
+	var token string
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		b, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Fprintln(os.Stderr)
+		if err != nil {
+			return err
+		}
+		token = string(b)
+	} else {
+		line, err := in.ReadString('\n')
+		if err != nil && line == "" {
+			return err
+		}
+		token = line
+	}
+	c.Token = strings.TrimSpace(token)
+	if !strings.HasPrefix(c.Token, "qst_") {
+		return errors.New(`that isn't a Quicksand API token (they start with "qst_")`)
+	}
+	var u struct {
+		Username string `json:"username"`
+	}
+	err := c.do("GET", "/api/auth/me", nil, &u)
+	var ae *apiError
+	if errors.As(err, &ae) && ae.Status == http.StatusUnauthorized {
+		return errors.New("the server doesn't accept that token; it may have been revoked or expired")
+	} else if err != nil {
+		return err
+	}
+	if err := saveSettings(c.settings); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "Signed in to %s as %s.\n", c.Server, u.Username)
 	return nil
 }
 
@@ -242,6 +288,23 @@ func cmdLogout(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	return os.Remove(p)
+}
+
+func cmdVersion(ctx context.Context, cmd *cli.Command) error {
+	fmt.Println("qs", version.Version)
+	c, err := signedIn()
+	if err != nil {
+		return nil
+	}
+	c.http.Timeout = 10 * time.Second
+	var v struct {
+		Version string `json:"version"`
+	}
+	if err := c.do("GET", "/api/version", nil, &v); err != nil {
+		return fmt.Errorf("server %s: %w", c.Server, err)
+	}
+	fmt.Printf("server %s (%s)\n", v.Version, c.Server)
+	return nil
 }
 
 func cmdWhoami(ctx context.Context, cmd *cli.Command) error {

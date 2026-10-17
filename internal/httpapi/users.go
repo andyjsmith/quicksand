@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"quicksand/internal/auth"
 	"quicksand/internal/store"
@@ -22,12 +23,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, errPasswordsDisabled)
 		return
 	}
-	var c credentials
-	if !decodeJSON(w, r, &c) {
+	var req struct {
+		credentials
+		// Token, if set, names an API token to create (and return) instead
+		// of starting a session, as qs does.
+		Token string `json:"token"`
+	}
+	if !decodeJSON(w, r, &req) {
 		return
 	}
-	u, err := s.sessions.Login(w, r, strings.TrimSpace(c.Username), c.Password)
+	username := strings.TrimSpace(req.Username)
+	u, err := s.sessions.CheckPassword(r.Context(), username, req.Password)
 	if errors.Is(err, auth.ErrInvalidCredentials) {
+		s.audit(r, store.AuditEntry{Username: username, Action: "login.failed", Detail: "password"})
 		writeError(w, http.StatusUnauthorized, err)
 		return
 	}
@@ -35,16 +43,39 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
+	if req.Token != "" {
+		t, secret, err := s.sessions.CreateToken(r.Context(), u.ID, req.Token, time.Time{})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		s.audit(r, store.AuditEntry{UserID: u.ID, Username: u.Username, Action: "login", Detail: "password, token " + t.Name})
+		writeJSON(w, http.StatusOK, map[string]any{"user": u, "token": secret})
+		return
+	}
+	if err := s.sessions.Start(w, r, u.ID, ""); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	s.audit(r, store.AuditEntry{UserID: u.ID, Username: u.Username, Action: "login", Detail: "password"})
 	writeJSON(w, http.StatusOK, u)
 }
 
 // handleLogout ends the session. For single sign-on sessions it returns
 // where to send the browser to sign out at the provider too.
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	u, tokenID, signedIn := s.sessions.Authenticate(r)
 	idToken, err := s.sessions.Logout(w, r)
 	if err != nil {
 		writeServiceError(w, err)
 		return
+	}
+	if signedIn {
+		detail := ""
+		if tokenID != 0 {
+			detail = "revoked its token"
+		}
+		s.audit(r, store.AuditEntry{UserID: u.ID, Username: u.Username, Action: "logout", Detail: detail})
 	}
 	if s.sso != nil && idToken != "" {
 		if u := s.sso.LogoutURL(idToken, s.postLogoutURL()); u != "" {
@@ -89,7 +120,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	// Other sessions are signed out; this one signs in again.
+	// Other sessions and tokens are signed out; this one signs in again.
 	if _, err := s.sessions.Login(w, r, u.Username, req.New); err != nil {
 		writeServiceError(w, err)
 		return
@@ -117,6 +148,10 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if !s.passwordsEnabled() {
 		writeError(w, http.StatusBadRequest, errors.New("password sign-in is turned off; users are added when they first sign in"))
 		return
+	}
+	auditTarget(r, strings.TrimSpace(req.Username))
+	if req.IsAdmin {
+		auditDetail(r, "administrator")
 	}
 	u, err := auth.CreateUser(r.Context(), s.store, req.Username, req.Password, req.IsAdmin)
 	if errors.Is(err, store.ErrConflict) {
@@ -155,6 +190,17 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errPasswordsDisabled)
 		return
 	}
+	var changes []string
+	switch {
+	case req.IsAdmin != nil && *req.IsAdmin:
+		changes = append(changes, "made administrator")
+	case req.IsAdmin != nil:
+		changes = append(changes, "removed administrator")
+	}
+	if req.Password != nil {
+		changes = append(changes, "set password")
+	}
+	auditDetail(r, "%s", strings.Join(changes, ", "))
 	if req.IsAdmin != nil {
 		if !*req.IsAdmin && id == auth.FromContext(r.Context()).ID {
 			writeError(w, http.StatusBadRequest, errors.New("you can't remove your own administrator role"))
@@ -200,7 +246,8 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// setPassword changes a password and signs the user out everywhere.
+// setPassword changes a password and signs the user out everywhere,
+// revoking their API tokens too.
 func (s *Server) setPassword(r *http.Request, id int64, password string) error {
 	if err := auth.ValidatePassword(password); err != nil {
 		return err
@@ -210,6 +257,9 @@ func (s *Server) setPassword(r *http.Request, id int64, password string) error {
 		return err
 	}
 	if err := s.store.SetPassword(r.Context(), id, hash); err != nil {
+		return err
+	}
+	if err := s.store.DeleteUserTokens(r.Context(), id); err != nil {
 		return err
 	}
 	return s.store.DeleteUserSessions(r.Context(), id)

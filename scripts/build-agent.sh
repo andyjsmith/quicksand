@@ -12,7 +12,7 @@ for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
 	[ "$os" = windows ] && ext=.exe
 	echo "building $os/$arch"
 	CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
-		-ldflags "-s -w -X quicksand/internal/agent.Version=$version" \
+		-ldflags "-s -w -X quicksand/internal/version.Version=$version" \
 		-o "$out/quicksand-agent-$os-$arch$ext" ./cmd/quicksand-agent
 done
 echo "done: $out"

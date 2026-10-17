@@ -21,6 +21,12 @@ type User struct {
 
 const userColumns = `id, username, is_admin, created_at, oidc_subject IS NOT NULL, password_hash != ''`
 
+// userColumnsOf is userColumns of the users table aliased as t, for joins.
+func userColumnsOf(t string) string {
+	return t + ".id, " + t + ".username, " + t + ".is_admin, " + t + ".created_at, " +
+		t + ".oidc_subject IS NOT NULL, " + t + ".password_hash != ''"
+}
+
 // scanUser scans userColumns, then extra.
 func scanUser(row interface{ Scan(...any) error }, extra ...any) (User, error) {
 	var u User

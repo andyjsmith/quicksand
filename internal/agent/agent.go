@@ -22,9 +22,6 @@ import (
 	"quicksand/internal/agentproto"
 )
 
-// Version is the agent build's version, reported to the server.
-var Version = "dev"
-
 // Config is the agent's configuration file.
 type Config struct {
 	// Port is the TCP port to listen on (default 7070).

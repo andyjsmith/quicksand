@@ -101,6 +101,8 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
+	auditTarget(r, vm.Name)
+	auditDetail(r, "template %s, %d CPUs, %d MiB, network %s", vm.TemplateID, vm.Cores, vm.MemoryMiB, vm.NetworkID)
 	writeJSON(w, http.StatusAccepted, s.vms.View(r.Context(), vm))
 }
 
@@ -151,6 +153,9 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	}{}
 	if r.ContentLength != 0 && !decodeJSON(w, r, &req) {
 		return
+	}
+	if req.Memory != nil && !*req.Memory {
+		auditDetail(r, "disks only")
 	}
 	if err := s.vms.TakeSnapshot(r.Context(), vm, req.Memory == nil || *req.Memory); err != nil {
 		writeServiceError(w, err)
@@ -210,6 +215,7 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("unknown power action %q", req.Action))
 		return
 	}
+	auditDetail(r, "%s", req.Action)
 	if err := s.vms.Power(r.Context(), vm, req.Action); err != nil {
 		writeServiceError(w, err)
 		return

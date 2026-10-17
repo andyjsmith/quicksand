@@ -50,6 +50,26 @@ type Config struct {
 	// OIDC enables single sign-on with an OpenID Connect provider such as
 	// Keycloak. Without it, users sign in with passwords only.
 	OIDC *OIDC `json:"oidc,omitempty"`
+	// Audit configures the audit log.
+	Audit *Audit `json:"audit,omitempty"`
+}
+
+// Audit configures the audit log of what users do.
+type Audit struct {
+	// Retention is how long entries are kept (default 365 days); "0d"
+	// keeps them forever.
+	Retention *Duration `json:"retention"`
+}
+
+// DefaultAuditRetention is how long audit log entries are kept by default.
+const DefaultAuditRetention = 365 * 24 * time.Hour
+
+// AuditRetention is how long audit log entries are kept; 0 is forever.
+func (c *Config) AuditRetention() time.Duration {
+	if c.Audit == nil || c.Audit.Retention == nil {
+		return DefaultAuditRetention
+	}
+	return time.Duration(*c.Audit.Retention)
 }
 
 // OIDC configures single sign-on. Users are created on their first sign-in
@@ -419,6 +439,9 @@ func (c *Config) validate() error {
 	}
 	if defaults == 0 && len(c.Networks) > 0 {
 		c.Networks[0].Default = true
+	}
+	if c.Audit != nil && c.Audit.Retention != nil && *c.Audit.Retention < 0 {
+		return errors.New("audit.retention can't be negative")
 	}
 	if c.OIDC != nil {
 		if err := c.OIDC.validate(); err != nil {

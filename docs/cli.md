@@ -13,19 +13,36 @@ qs login https://quicksand.example
 ```
 
 If the server has single sign-on, `qs` opens your browser to sign in there
-and receives the session on a temporary `127.0.0.1` port; the browser must
+and receives the result on a temporary `127.0.0.1` port; the browser must
 run on the same machine as `qs`. Otherwise, or with `--password`, `qs` asks
 for your username and password. See
-[authentication.md](authentication.md#the-command-line-1). Either way, it saves the session in
-`~/.config/quicksand/cli.json` (`%AppData%\quicksand\cli.json` on Windows),
-readable only by you. If the server's certificate isn't trusted by your
+[authentication.md](authentication.md#the-command-line-1).
+
+Either way, `qs` gets an API token named after your computer ("qs on
+laptop") and saves it in `~/.config/quicksand/cli.json`
+(`%AppData%\quicksand\cli.json` on Windows), readable only by you. The
+token lasts until it goes unused for 90 days, so `qs` stays signed in while
+you use it. You see and revoke tokens under **API tokens**, in the menu
+under your name in the web client; changing your password revokes them all.
+
+On a computer without a browser, or for scripts, make a token on that page
+and sign in with it:
+
+```sh
+qs login --token https://quicksand.example
+```
+
+`qs` asks for the token, or reads it from standard input
+(`echo "$TOKEN" | qs login --token ...`), so it stays out of your shell's
+history. If the server's certificate isn't trusted by your
 system, as with the self-signed one the installer creates, `qs` shows its
 SHA-256 fingerprint and asks whether to trust it; the answer is pinned, so a
 replaced certificate is refused until you sign in again. Pass
 `--fingerprint` to pin a known fingerprint without the prompt.
 
-`qs whoami` shows the account in use; `qs logout` ends the session (a
-single sign-on session at the provider stays signed in).
+`qs whoami` shows the account in use, and `qs version` the versions of `qs`
+and the server. `qs logout` signs out and revokes the token (a single
+sign-on session at the provider stays signed in).
 
 ## Help
 

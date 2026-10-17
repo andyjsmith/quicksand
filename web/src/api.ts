@@ -12,6 +12,28 @@ export interface User {
   hasPassword: boolean
 }
 
+/** An API token; its secret is only shown when it's created. */
+export interface ApiToken {
+  id: number
+  name: string
+  createdAt: string
+  /** Zero time until first used. */
+  lastUsedAt: string
+  /** Zero time for tokens that expire only when unused for 90 days. */
+  expiresAt: string
+}
+
+export interface AuditEntry {
+  id: number
+  at: string
+  userId?: number
+  username: string
+  action: string
+  target: string
+  detail: string
+  ip: string
+}
+
 /** How users can sign in. */
 export interface AuthMethods {
   password: boolean
@@ -294,6 +316,12 @@ export const api = {
   /** Signs out; for single sign-on, returns where to sign out at the provider too. */
   logout: () => request<{ redirect: string } | undefined>('POST', '/api/auth/logout'),
   authMethods: () => request<AuthMethods>('GET', '/api/auth/methods'),
+  version: () => request<{ version: string }>('GET', '/api/version'),
+  tokens: () => request<ApiToken[]>('GET', '/api/tokens'),
+  /** Makes a token; expiresInDays 0 is none (only unused tokens expire). */
+  createToken: (name: string, expiresInDays: number) =>
+    request<{ token: ApiToken; secret: string }>('POST', '/api/tokens', { name, expiresInDays }),
+  deleteToken: (id: number) => request<void>('DELETE', `/api/tokens/${id}`),
   me: () => request<User>('GET', '/api/auth/me'),
   changePassword: (current: string, next: string) =>
     request<void>('POST', '/api/auth/password', { current, new: next }),
@@ -390,6 +418,12 @@ export const api = {
     ),
 
   agentSettings: () => request<AgentSettings>('GET', '/api/admin/agent'),
+  /** A page of the audit log, newest first: entries older than before (an ID) containing q. */
+  audit: (before: number, q: string) =>
+    request<{ entries: AuditEntry[]; more: boolean }>(
+      'GET',
+      `/api/admin/audit?${new URLSearchParams({ before: String(before), q })}`,
+    ),
   users: () => request<User[]>('GET', '/api/admin/users'),
   createUser: (username: string, password: string, isAdmin: boolean) =>
     request<User>('POST', '/api/admin/users', { username, password, isAdmin }),

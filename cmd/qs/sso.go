@@ -39,11 +39,11 @@ func (c *client) authMethods() (authMethods, error) {
 	return m, err
 }
 
-// ssoLogin signs in with single sign-on in a browser and returns the
-// session cookie and username. The server hands the finished sign-in to a
+// ssoLogin signs in with single sign-on in a browser and returns a new API
+// token and the username. The server hands the finished sign-in to a
 // listener on 127.0.0.1 as a one-time code, which only works together with
 // a verifier that never leaves qs.
-func (c *client) ssoLogin(name string) (session, username string, err error) {
+func (c *client) ssoLogin(name string) (token, username string, err error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", "", err
@@ -96,19 +96,22 @@ func (c *client) ssoLogin(name string) (session, username string, err error) {
 		return "", "", fmt.Errorf("sign in failed: %s", res.err)
 	}
 	var out struct {
-		Session string `json:"session"`
-		User    struct {
+		Token string `json:"token"`
+		User  struct {
 			Username string `json:"username"`
 		} `json:"user"`
 	}
-	err = c.do("POST", "/api/auth/cli/token", map[string]string{"code": res.code, "verifier": v}, &out)
+	err = c.do("POST", "/api/auth/cli/token", map[string]string{"code": res.code, "verifier": v, "name": tokenName()}, &out)
 	var ae *apiError
 	if errors.As(err, &ae) && ae.Status == http.StatusUnauthorized {
 		return "", "", errors.New("sign in failed: the server refused the sign-in code; try again")
 	} else if err != nil {
 		return "", "", fmt.Errorf("sign in failed: %w", err)
 	}
-	return out.Session, out.User.Username, nil
+	if out.Token == "" {
+		return "", "", errors.New("the server didn't return a token")
+	}
+	return out.Token, out.User.Username, nil
 }
 
 // openBrowser opens url in the default browser, if it can.

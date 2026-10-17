@@ -7,6 +7,7 @@ dev-tls.key
 # Build output
 /quicksand
 /qs
+/quicksand-agent
 web/node_modules/
 web/dist/
 dist/

@@ -17,7 +17,6 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 
-	"quicksand/internal/auth"
 	"quicksand/internal/config"
 )
 
@@ -316,11 +315,11 @@ func TestSSOForCLI(t *testing.T) {
 	code := loc.Query().Get("code")
 
 	qs := &http.Client{}
-	if resp := do(t, qs, "POST", e.srv.URL+"/api/auth/cli/token", `{"code":"`+code+`","verifier":"wrong"}`, nil); resp.StatusCode != http.StatusUnauthorized {
+	if resp := do(t, qs, "POST", e.srv.URL+"/api/auth/cli/token", `{"code":"`+code+`","verifier":"wrong","name":"qs"}`, nil); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("wrong verifier: %s", resp.Status)
 	}
 	// The failed attempt used the code up.
-	resp = do(t, qs, "POST", e.srv.URL+"/api/auth/cli/token", `{"code":"`+code+`","verifier":"`+verifier+`"}`, nil)
+	resp = do(t, qs, "POST", e.srv.URL+"/api/auth/cli/token", `{"code":"`+code+`","verifier":"`+verifier+`","name":"qs"}`, nil)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("reused code: %s", resp.Status)
 	}
@@ -328,17 +327,15 @@ func TestSSOForCLI(t *testing.T) {
 	resp = ssoSignIn(t, e, ssoClient(), "?cli_port=4242&cli_challenge="+challenge)
 	loc, _ = url.Parse(resp.Header.Get("Location"))
 	var out struct {
-		Session string
-		User    struct{ Username string }
+		Token string
+		User  struct{ Username string }
 	}
-	resp = doJSON(t, qs, "POST", e.srv.URL+"/api/auth/cli/token", `{"code":"`+loc.Query().Get("code")+`","verifier":"`+verifier+`"}`, &out)
-	if resp.StatusCode != http.StatusOK || out.Session == "" || out.User.Username != "carol" {
+	resp = doJSON(t, qs, "POST", e.srv.URL+"/api/auth/cli/token", `{"code":"`+loc.Query().Get("code")+`","verifier":"`+verifier+`","name":"qs on laptop"}`, &out)
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(out.Token, "qst_") || out.User.Username != "carol" {
 		t.Fatalf("token: %s %+v", resp.Status, out)
 	}
-	req, _ := http.NewRequest("GET", e.srv.URL+"/api/auth/me", nil)
-	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: out.Session})
-	if resp, err := qs.Do(req); err != nil || resp.StatusCode != http.StatusOK {
-		t.Fatalf("qs session: %v %v", resp, err)
+	if resp := do(t, bearer(out.Token), "GET", e.srv.URL+"/api/auth/me", "", nil); resp.StatusCode != http.StatusOK {
+		t.Fatalf("qs token: %s", resp.Status)
 	}
 }
 

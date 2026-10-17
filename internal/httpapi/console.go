@@ -39,6 +39,7 @@ func (s *Server) handleCreateConsole(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	auditDetail(r, "%s", req.Protocol)
 	if vm.State != store.VMReady {
 		writeError(w, http.StatusConflict, errors.New("the VM is not ready"))
 		return

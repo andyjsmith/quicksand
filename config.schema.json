@@ -183,6 +183,19 @@
         "model": { "type": "string", "default": "e1000", "description": "NIC model (e1000 needs no guest drivers)." }
       }
     },
+    "audit": {
+      "type": "object",
+      "description": "The audit log of what users do (sign-ins, deploys, shells, file transfers, administration), shown on the Admin page.",
+      "additionalProperties": false,
+      "properties": {
+        "retention": {
+          "$ref": "#/definitions/duration",
+          "default": "365d",
+          "description": "How long entries are kept; older ones are deleted hourly. \"0d\" keeps them forever.",
+          "examples": ["90d", "365d", "0d"]
+        }
+      }
+    },
     "oidc": {
       "type": "object",
       "description": "Enables single sign-on with an OpenID Connect provider such as Keycloak, alongside password sign-in (or instead of it, with disablePasswords). Users are created on their first sign-in. See docs/authentication.md.",

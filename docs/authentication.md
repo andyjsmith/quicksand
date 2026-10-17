@@ -186,8 +186,9 @@ sudo -u quicksand quicksand user admin alice
 With `allowedGroups`, only members of those groups or of `adminGroups` can
 sign in. Others see "your account isn't in a group allowed to use
 Quicksand". Existing users removed from the groups can't sign in again, but
-keep any session they already have until it ends; delete them on the Admin
-page to end it at once (once they own no VMs). You can also restrict access
+keep any session they already have until it ends, and their
+[API tokens](#api-tokens) (such as `qs`'s) until unused for 90 days. Delete
+them on the Admin page to end both at once (once they own no VMs). You can also restrict access
 in Keycloak itself, for example by requiring a role for the client.
 
 ### Moving password users to single sign-on
@@ -226,12 +227,14 @@ through the browser:
 1. `qs` opens your browser to sign in (and prints the URL in case it can't).
 2. After you sign in, Quicksand sends the browser to a temporary listener of
    `qs` on `127.0.0.1` with a one-time code.
-3. `qs` trades the code, together with a secret that never left `qs`, for a
-   session. A code caught by anyone else is useless without that secret.
+3. `qs` trades the code, together with a secret that never left `qs`, for an
+   [API token](#api-tokens). A code caught by anyone else is useless
+   without that secret.
 
 The browser must run on the same machine as `qs`. Over SSH, either sign in
-with a password (`qs login --password`, if you have one), or forward the
-port `qs` prints in the URL (`cli_port`) with `ssh -L`. `qs login --password`
+with a password (`qs login --password`, if you have one), make a token in
+the web client and use `qs login --token`, or forward the port `qs` prints
+in the URL (`cli_port`) with `ssh -L`. `qs login --password`
 also skips the browser when the server offers both. See
 [cli.md](cli.md#signing-in).
 
@@ -269,3 +272,42 @@ Quicksand (`journalctl -u quicksand`).
 
 To see the claims Keycloak sends, use the client's **Client scopes** tab,
 then **Evaluate**, then **Generated ID token**, for a given user.
+
+## API tokens
+
+API tokens sign in `qs` and scripts. Requests carry one as
+`Authorization: Bearer qst_...`, and it acts as its owner, like a session.
+
+- **From `qs login`:** whether with a password or single sign-on, `qs`
+  gets a token named after the computer ("qs on laptop"), so it stays
+  signed in without signing in again every week.
+- **By hand:** **API tokens**, in the menu under your name, lists your
+  tokens and makes new ones, shown once, for `qs login --token` or scripts.
+  These can also expire on a set date.
+- **Expiry:** a token stops working when unused for 90 days, when revoked
+  (on that page, or by `qs logout`), or when its owner's password changes
+  or is reset. Deleting a user deletes their tokens.
+
+Only a hash of each token is stored. Unlike sessions, tokens aren't
+checked against the identity provider again: an SSO user removed from
+`allowedGroups` keeps their tokens until they go unused or the user is
+deleted.
+
+## Audit log
+
+The **Audit log** on the Admin page records sign-ins (and failed ones),
+sign-outs, password changes, API tokens made and revoked, and what users do
+to machines: deploying, destroying, power, consoles, snapshots, firewall and
+link changes, commands run, shells, port forwards, killed processes and file
+transfers. Administration (users added, changed and deleted) is recorded
+too. Each entry has the time, the user, what was done, to which VM or user,
+details such as the command or path, and the client's address (the proxy's,
+behind a reverse proxy).
+
+Entries are kept for a year, then deleted. Set how long in the
+configuration; `"0d"` keeps them forever:
+
+```json
+"audit": { "retention": "90d" }
+```
+

@@ -17,6 +17,7 @@ import {
 import { onMounted, ref } from 'vue'
 import { api, errorMessage, type AgentSettings, type AuthMethods, type User, type VM } from '@/api'
 import AppHeader from '@/components/AppHeader.vue'
+import AuditLog from '@/components/AuditLog.vue'
 import ExpiryBadge from '@/components/ExpiryBadge.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -341,6 +342,8 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
           </div>
         </CardContent>
       </Card>
+
+      <AuditLog />
     </main>
 
     <Dialog v-model:open="dialogOpen">

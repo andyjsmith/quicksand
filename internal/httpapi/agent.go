@@ -50,6 +50,11 @@ func (s *Server) handleAgentExec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("set exactly one of argv or shell"))
 		return
 	}
+	if req.Shell != "" {
+		auditDetail(r, "%s", req.Shell)
+	} else {
+		auditDetail(r, "%q", req.Argv)
+	}
 	timeout := agentproto.DefaultExecTimeout
 	if req.TimeoutSeconds > 0 {
 		timeout = min(time.Duration(req.TimeoutSeconds)*time.Second, agentproto.MaxExecTimeout)
@@ -112,6 +117,7 @@ func (s *Server) handleKill(w http.ResponseWriter, r *http.Request) {
 	if r.ContentLength != 0 && !decodeJSON(w, r, &req) {
 		return
 	}
+	auditDetail(r, "pid %d", pid)
 	ctx, cancel := context.WithTimeout(r.Context(), agentTimeout)
 	defer cancel()
 	if err := g.Kill(ctx, g.Host, pid, req.Force); err != nil {
@@ -174,6 +180,7 @@ func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), agentTimeout)
 	defer cancel()
+	auditDetail(r, "%s", r.URL.Query().Get("path"))
 	e, err := g.Mkdir(ctx, g.Host, g.File(r.URL.Query().Get("path")))
 	if err != nil {
 		writeAgentError(w, err)
@@ -190,6 +197,7 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 	q := r.URL.Query()
+	auditDetail(r, "%s", q.Get("path"))
 	if err := g.Remove(ctx, g.Host, g.File(q.Get("path")), q.Get("recursive") == "1"); err != nil {
 		writeAgentError(w, err)
 		return
@@ -204,6 +212,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	auditDetail(r, "%s", r.URL.Query().Get("path"))
 	resp, err := g.Download(r.Context(), g.Host, g.File(r.URL.Query().Get("path")))
 	if err != nil {
 		writeAgentError(w, err)
@@ -219,6 +228,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
+	auditDetail(r, "%s", q.Get("path"))
 	e, err := g.Upload(r.Context(), g.Host, g.File(q.Get("path")), r.Body, r.ContentLength, q.Get("overwrite") == "1")
 	if err != nil {
 		writeAgentError(w, err)
@@ -306,6 +316,14 @@ func (s *Server) handleShell(w http.ResponseWriter, r *http.Request) {
 	req := agentproto.ShellRequest{Command: q.Get("command"), Shell: q.Get("shell"), PTY: q.Get("pty") == "1", Term: q.Get("term"), Dir: g.FilesDir}
 	req.Cols, _ = strconv.Atoi(q.Get("cols"))
 	req.Rows, _ = strconv.Atoi(q.Get("rows"))
+	switch {
+	case req.Command != "":
+		auditDetail(r, "%s", req.Command)
+	case req.Shell != "":
+		auditDetail(r, "interactive (%s)", req.Shell)
+	default:
+		auditDetail(r, "interactive")
+	}
 	s.relayStream(w, r, func(ctx context.Context) (net.Conn, error) { return g.Shell(ctx, g.Host, req) }, writeAgentError)
 }
 
@@ -321,6 +339,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("addr must be host:port"))
 		return
 	}
+	auditDetail(r, "to %s", addr)
 	s.relayStream(w, r, func(ctx context.Context) (net.Conn, error) { return g.Connect(ctx, g.Host, addr) }, writeAgentError)
 }
 
@@ -354,6 +373,7 @@ func (s *Server) relayStream(w http.ResponseWriter, r *http.Request, open func(c
 	if err != nil && isWS {
 		// Browsers can't read a refused websocket's response; accept it
 		// and report the error as the session's end instead.
+		skipAudit(r)
 		rec := httptest.NewRecorder()
 		writeErr(rec, err)
 		var body struct {

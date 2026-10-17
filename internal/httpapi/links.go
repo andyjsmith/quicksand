@@ -93,6 +93,7 @@ func (s *Server) handleRenameLink(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	auditDetail(r, "renamed to %q", req.Name)
 	if err := s.vms.RenameLinkNetwork(r.Context(), auth.FromContext(r.Context()), id, req.Name); err != nil {
 		writeServiceError(w, err)
 		return

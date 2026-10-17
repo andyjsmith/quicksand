@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ChevronDown, KeyRound, LogOut, Server, Shield } from '@lucide/vue'
+import { ChevronDown, KeyRound, KeySquare, LogOut, Server, Shield } from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
+import { api } from '@/api'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,6 +23,10 @@ const changingPassword = ref(false)
 const passwords = ref(false)
 onMounted(async () => (passwords.value = (await authMethods()).password))
 const canChangePassword = computed(() => passwords.value && !!auth.user.value?.hasPassword)
+
+const router = useRouter()
+const version = ref('')
+onMounted(async () => (version.value = (await api.version().catch(() => ({ version: '' }))).version))
 
 async function logout() {
   resetMachines()
@@ -61,7 +66,12 @@ async function logout() {
           <DropdownMenuItem v-if="canChangePassword" @select="changingPassword = true">
             <KeyRound /> Change password
           </DropdownMenuItem>
+          <DropdownMenuItem @select="router.push({ name: 'tokens' })"><KeySquare /> API tokens</DropdownMenuItem>
           <DropdownMenuItem @select="logout"><LogOut /> Sign out</DropdownMenuItem>
+          <template v-if="version">
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel class="text-muted-foreground text-xs font-normal">Quicksand {{ version }}</DropdownMenuLabel>
+          </template>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

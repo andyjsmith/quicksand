@@ -132,7 +132,21 @@ browsers warn until it's accepted. To use one from your own CA, replace
 ```sh
 systemctl status quicksand
 journalctl -u quicksand -f
+quicksand version
 ```
+
+The version is also in the web client's menu under your name, and
+`qs version` shows both its own and the server's.
+
+### Logs
+
+- **The audit log** of what users do is on the Admin page and kept in the
+  database for a year by default. Set `"audit": {"retention": "90d"}` to
+  change that, or `"0d"` to keep entries forever. See
+  [authentication.md](authentication.md#audit-log).
+- **The service's own log** goes to the systemd journal, which decides how
+  long it's kept: set `SystemMaxUse=` or `MaxRetentionSec=` in
+  `/etc/systemd/journald.conf`.
 
 Back up `/etc/quicksand` and `/var/lib/quicksand/quicksand.db` (SQLite; copy
 it while the service is stopped, or use `sqlite3 quicksand.db ".backup out.db"`).

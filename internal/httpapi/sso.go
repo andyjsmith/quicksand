@@ -9,8 +9,10 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"quicksand/internal/auth"
+	"quicksand/internal/store"
 )
 
 const (
@@ -113,7 +115,8 @@ func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("single sign-on", "user", u.Username, "cli", login.CLIPort != 0)
 	if login.CLIPort != 0 {
-		code := s.sso.IssueCLICode(login, u.ID, idToken)
+		// Audited when qs redeems the code.
+		code := s.sso.IssueCLICode(login, u.ID)
 		http.Redirect(w, r, cliCallback(login.CLIPort, url.Values{"code": {code}}), http.StatusFound)
 		return
 	}
@@ -121,6 +124,7 @@ func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
 		s.ssoFailed(w, r, 0, err)
 		return
 	}
+	s.audit(r, store.AuditEntry{UserID: u.ID, Username: u.Username, Action: "login", Detail: "single sign-on"})
 	next := login.Next
 	if next == "" {
 		next = "/"
@@ -129,7 +133,7 @@ func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCLIToken trades the code qs was handed, and the verifier only qs
-// knows, for a session.
+// knows, for an API token with the name qs gives.
 func (s *Server) handleCLIToken(w http.ResponseWriter, r *http.Request) {
 	if s.sso == nil {
 		writeError(w, http.StatusNotFound, errors.New("single sign-on isn't configured"))
@@ -138,18 +142,14 @@ func (s *Server) handleCLIToken(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Code     string `json:"code"`
 		Verifier string `json:"verifier"`
+		Name     string `json:"name"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	userID, idToken, ok := s.sso.RedeemCLICode(req.Code, req.Verifier)
+	userID, ok := s.sso.RedeemCLICode(req.Code, req.Verifier)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, errors.New("invalid or expired sign-in code"))
-		return
-	}
-	session, _, err := s.sessions.Create(r.Context(), userID, idToken)
-	if err != nil {
-		writeServiceError(w, err)
 		return
 	}
 	u, err := s.store.User(r.Context(), userID)
@@ -157,7 +157,13 @@ func (s *Server) handleCLIToken(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"session": session, "user": u})
+	t, secret, err := s.sessions.CreateToken(r.Context(), userID, req.Name, time.Time{})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	s.audit(r, store.AuditEntry{UserID: u.ID, Username: u.Username, Action: "login", Detail: "single sign-on, token " + t.Name})
+	writeJSON(w, http.StatusOK, map[string]any{"user": u, "token": secret})
 }
 
 // ssoFailed reports a failed sign-in: to qs if it started it, otherwise on

@@ -63,7 +63,6 @@ type PendingLogin struct {
 
 type cliCode struct {
 	userID    int64
-	idToken   string
 	challenge string
 	expires   time.Time
 }
@@ -243,30 +242,30 @@ func (s *SSO) resolveUser(ctx context.Context, subject, username string, groups 
 
 // IssueCLICode hands a finished sign-in to qs: it redeems the returned code
 // with RedeemCLICode and the verifier matching the login's challenge.
-func (s *SSO) IssueCLICode(login *PendingLogin, userID int64, idToken string) string {
+func (s *SSO) IssueCLICode(login *PendingLogin, userID int64) string {
 	code := randomString()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweep()
-	s.cliCodes[code] = &cliCode{userID: userID, idToken: idToken, challenge: login.cliChallenge, expires: time.Now().Add(cliCodeTTL)}
+	s.cliCodes[code] = &cliCode{userID: userID, challenge: login.cliChallenge, expires: time.Now().Add(cliCodeTTL)}
 	return code
 }
 
-// RedeemCLICode returns the user and ID token a qs code was issued for,
-// once, if verifier matches the challenge qs started the sign-in with.
-func (s *SSO) RedeemCLICode(code, verifier string) (userID int64, idToken string, ok bool) {
+// RedeemCLICode returns the user a qs code was issued for, once, if
+// verifier matches the challenge qs started the sign-in with.
+func (s *SSO) RedeemCLICode(code, verifier string) (userID int64, ok bool) {
 	s.mu.Lock()
 	c, found := s.cliCodes[code]
 	delete(s.cliCodes, code)
 	s.mu.Unlock()
 	if !found || time.Now().After(c.expires) {
-		return 0, "", false
+		return 0, false
 	}
 	sum := sha256.Sum256([]byte(verifier))
 	if subtle.ConstantTimeCompare([]byte(base64.RawURLEncoding.EncodeToString(sum[:])), []byte(c.challenge)) != 1 {
-		return 0, "", false
+		return 0, false
 	}
-	return c.userID, c.idToken, true
+	return c.userID, true
 }
 
 // LogoutURL is where to send the browser to sign out at the provider too,

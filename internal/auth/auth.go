@@ -117,7 +117,17 @@ func NewSessions(s *store.Store, secureCookies bool) *Sessions {
 
 // Login checks credentials and, on success, sets a session cookie.
 func (s *Sessions) Login(w http.ResponseWriter, r *http.Request, username, password string) (store.User, error) {
-	u, hash, err := s.store.UserCredentials(r.Context(), username)
+	u, err := s.CheckPassword(r.Context(), username, password)
+	if err != nil {
+		return store.User{}, err
+	}
+	return u, s.Start(w, r, u.ID, "")
+}
+
+// CheckPassword returns the user with these credentials, or
+// ErrInvalidCredentials.
+func (s *Sessions) CheckPassword(ctx context.Context, username, password string) (store.User, error) {
+	u, hash, err := s.store.UserCredentials(ctx, username)
 	if errors.Is(err, store.ErrNotFound) {
 		CheckPassword(dummyHash, password)
 		return store.User{}, ErrInvalidCredentials
@@ -128,19 +138,21 @@ func (s *Sessions) Login(w http.ResponseWriter, r *http.Request, username, passw
 	if !CheckPassword(hash, password) {
 		return store.User{}, ErrInvalidCredentials
 	}
-	return u, s.Start(w, r, u.ID, "")
+	return u, nil
 }
 
 // Start signs a user in with a new session cookie. idToken is the
 // provider's ID token for single sign-on sessions.
 func (s *Sessions) Start(w http.ResponseWriter, r *http.Request, userID int64, idToken string) error {
-	value, expires, err := s.Create(r.Context(), userID, idToken)
-	if err != nil {
+	token := make([]byte, 32)
+	rand.Read(token)
+	expires := time.Now().Add(SessionTTL)
+	if err := s.store.CreateSession(r.Context(), tokenHash(token), userID, expires, idToken); err != nil {
 		return err
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieName,
-		Value:    value,
+		Value:    base64.RawURLEncoding.EncodeToString(token),
 		Path:     "/",
 		Expires:  expires,
 		HttpOnly: true,
@@ -152,21 +164,12 @@ func (s *Sessions) Start(w http.ResponseWriter, r *http.Request, userID int64, i
 	return nil
 }
 
-// Create stores a new session and returns its cookie value, for clients
-// such as qs that keep the cookie themselves.
-func (s *Sessions) Create(ctx context.Context, userID int64, idToken string) (string, time.Time, error) {
-	token := make([]byte, 32)
-	rand.Read(token)
-	expires := time.Now().Add(SessionTTL)
-	if err := s.store.CreateSession(ctx, tokenHash(token), userID, expires, idToken); err != nil {
-		return "", time.Time{}, err
-	}
-	return base64.RawURLEncoding.EncodeToString(token), expires, nil
-}
-
 // Logout ends the request's session and returns its ID token, if it was a
-// single sign-on session.
+// single sign-on session. A request with an API token revokes the token.
 func (s *Sessions) Logout(w http.ResponseWriter, r *http.Request) (idToken string, err error) {
+	if u, tokenID, ok := s.Authenticate(r); ok && tokenID != 0 {
+		return "", s.store.DeleteToken(r.Context(), u.ID, tokenID)
+	}
 	if token, ok := cookieToken(r); ok {
 		if idToken, err = s.store.DeleteSession(r.Context(), tokenHash(token)); err != nil {
 			return "", err
@@ -179,14 +182,19 @@ func (s *Sessions) Logout(w http.ResponseWriter, r *http.Request) (idToken strin
 	return idToken, nil
 }
 
-// User returns the user of the request's session, if any.
-func (s *Sessions) User(r *http.Request) (store.User, bool) {
+// Authenticate returns the request's user, from its API token (whose ID
+// it also returns) or its session cookie.
+func (s *Sessions) Authenticate(r *http.Request) (u store.User, tokenID int64, ok bool) {
+	if hash, ok := bearerToken(r); ok {
+		u, tokenID, err := s.store.TokenUser(r.Context(), hash)
+		return u, tokenID, err == nil
+	}
 	token, ok := cookieToken(r)
 	if !ok {
-		return store.User{}, false
+		return store.User{}, 0, false
 	}
 	u, err := s.store.SessionUser(r.Context(), tokenHash(token))
-	return u, err == nil
+	return u, 0, err == nil
 }
 
 func cookieToken(r *http.Request) ([]byte, bool) {

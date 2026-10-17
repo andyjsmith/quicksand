@@ -24,8 +24,8 @@ import (
 // settings is what "qs login" saves, in the user's config directory.
 type settings struct {
 	Server string `json:"server"`
-	// Session is the Quicksand session cookie value.
-	Session string `json:"session"`
+	// Token is the API token qs signs in with.
+	Token string `json:"token"`
 	// Fingerprint pins the server certificate's SHA-256 when it isn't
 	// trusted by the system (e.g. Quicksand's self-signed certificate).
 	Fingerprint string `json:"fingerprint,omitempty"`
@@ -132,9 +132,7 @@ func (c *client) do(method, path string, body, out any) error {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.Session != "" {
-		req.AddCookie(&http.Cookie{Name: "quicksand_session", Value: c.Session})
-	}
+	c.authorize(req)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
@@ -159,9 +157,26 @@ func (c *client) do(method, path string, body, out any) error {
 	return nil
 }
 
-// login signs in and returns the session cookie.
+// authorize adds the signed-in user's token to a request.
+func (c *client) authorize(req *http.Request) {
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+}
+
+// tokenName names the API tokens qs signs in with, so they're recognizable
+// in the web client's list.
+func tokenName() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		return "qs"
+	}
+	return "qs on " + host
+}
+
+// login signs in with a password and returns a new API token.
 func (c *client) login(username, password string) (string, error) {
-	b, _ := json.Marshal(map[string]string{"username": username, "password": password})
+	b, _ := json.Marshal(map[string]string{"username": username, "password": password, "token": tokenName()})
 	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(c.Server, "/")+"/api/auth/login", bytes.NewReader(b))
 	if err != nil {
 		return "", err
@@ -172,22 +187,21 @@ func (c *client) login(username, password string) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
+	var out struct {
+		Token string `json:"token"`
+		Error string `json:"error"`
+	}
+	json.NewDecoder(resp.Body).Decode(&out)
 	if resp.StatusCode != http.StatusOK {
-		var e struct {
-			Error string `json:"error"`
+		if out.Error == "" {
+			out.Error = resp.Status
 		}
-		json.NewDecoder(resp.Body).Decode(&e)
-		if e.Error == "" {
-			e.Error = resp.Status
-		}
-		return "", fmt.Errorf("sign in failed: %s", e.Error)
+		return "", fmt.Errorf("sign in failed: %s", out.Error)
 	}
-	for _, ck := range resp.Cookies() {
-		if ck.Name == "quicksand_session" {
-			return ck.Value, nil
-		}
+	if out.Token == "" {
+		return "", errors.New("the server didn't return a token")
 	}
-	return "", errors.New("the server didn't return a session")
+	return out.Token, nil
 }
 
 // stream opens a stream (see agentproto.DialStream) to an API path, such
@@ -225,7 +239,7 @@ func (c *client) stream(path string) (net.Conn, error) {
 		conn.Close()
 		return nil, err
 	}
-	req.AddCookie(&http.Cookie{Name: "quicksand_session", Value: c.Session})
+	c.authorize(req)
 	// The server answers once the agent has (agentTimeout there).
 	conn.SetDeadline(time.Now().Add(45 * time.Second))
 	s, err := agentproto.DialStream(conn, req)
@@ -252,7 +266,7 @@ func (c *client) send(method, path string, body io.Reader, size int64, contentTy
 		req.ContentLength = size
 		req.Header.Set("Content-Type", contentType)
 	}
-	req.AddCookie(&http.Cookie{Name: "quicksand_session", Value: c.Session})
+	c.authorize(req)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err

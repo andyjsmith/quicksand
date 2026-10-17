@@ -28,7 +28,7 @@ Proxmox account (or your attention) to get one.
   and its link network, with presets like "Internet only" for VMs that
   shouldn't touch the local network.
 - Expiry with optional extensions, and quotas per user, per template and overall.
-- An admin page for users and everyone's machines.
+- An admin page for users, everyone's machines and an audit log of who did what.
 - Passwords, single sign-on through Keycloak or another OpenID Connect
   provider, or both. With SSO, users are created on first sign-in and a group
   can make them administrators ([docs/authentication.md](docs/authentication.md)).

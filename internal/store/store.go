@@ -84,6 +84,29 @@ var migrations = []string{
 	`ALTER TABLE users ADD COLUMN oidc_subject TEXT;
 	CREATE UNIQUE INDEX users_oidc_subject ON users(oidc_subject) WHERE oidc_subject IS NOT NULL;
 	ALTER TABLE sessions ADD COLUMN id_token TEXT NOT NULL DEFAULT '';`,
+	// 7: API tokens (qs signs in with one), and the audit log, whose
+	// entries outlive their users.
+	`CREATE TABLE api_tokens (
+		id           INTEGER PRIMARY KEY,
+		user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		name         TEXT    NOT NULL,
+		token_hash   BLOB    NOT NULL UNIQUE,
+		created_at   INTEGER NOT NULL,
+		last_used_at INTEGER NOT NULL DEFAULT 0,
+		expires_at   INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE INDEX api_tokens_user ON api_tokens(user_id);
+	CREATE TABLE audit_log (
+		id       INTEGER PRIMARY KEY,
+		at       INTEGER NOT NULL,
+		user_id  INTEGER,
+		username TEXT    NOT NULL,
+		action   TEXT    NOT NULL,
+		target   TEXT    NOT NULL DEFAULT '',
+		detail   TEXT    NOT NULL DEFAULT '',
+		ip       TEXT    NOT NULL DEFAULT ''
+	);
+	CREATE INDEX audit_log_at ON audit_log(at);`,
 }
 
 func Open(path string) (*Store, error) {
