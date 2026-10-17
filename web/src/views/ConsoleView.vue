@@ -103,6 +103,12 @@ function closeTab(id: string) {
   }
 }
 
+// A VM destroyed from the panel: close its tab, or leave if it was the last.
+function onDestroyed(id: string) {
+  if (tabs.value.length > 1) closeTab(id)
+  else router.push('/')
+}
+
 function setProtocol(id: string, protocol: ConsoleProtocol) {
   const tab = tabs.value.find((t) => t.id === id)
   if (tab && tab.protocol !== protocol) tab.protocol = protocol
@@ -398,6 +404,7 @@ watch(focused, () => sidebarKey.value++)
       @toggle-fullscreen="toggleFullscreen"
       @open-vm="openPicker"
       @upload="panes.get(focused)?.upload()"
+      @destroyed="onDestroyed"
     />
   </div>
 </template>

@@ -19,6 +19,7 @@ import {
   Save,
   Send,
   SquareTerminal,
+  Trash2,
   Upload,
   Unplug,
   Volume2,
@@ -55,7 +56,7 @@ const props = defineProps<{
 }>()
 
 const open = defineModel<boolean>('open', { required: true })
-const emit = defineEmits<{ toggleFullscreen: []; openVm: []; upload: [] }>()
+const emit = defineEmits<{ toggleFullscreen: []; openVm: []; upload: []; destroyed: [id: string] }>()
 
 const c = props.console
 
@@ -192,17 +193,17 @@ function screenshot() {
   }, 'image/png')
 }
 
-// Snapshot, revert and force reset, confirmed in the panel.
-const confirming = ref<'take' | 'revert' | 'reset' | null>(null)
+// Snapshot, revert, force reset and destroy, confirmed in the panel.
+const confirming = ref<'take' | 'revert' | 'reset' | 'destroy' | null>(null)
 const withMemory = ref(true)
 const snapshotError = ref<string>()
 const snapshotReady = computed(() => props.vm?.state === 'ready' && !props.vm.action)
-function askSnapshot(kind: 'take' | 'revert' | 'reset') {
+function askConfirm(kind: 'take' | 'revert' | 'reset' | 'destroy') {
   withMemory.value = true
   snapshotError.value = undefined
   confirming.value = kind
 }
-async function runSnapshot() {
+async function runConfirmed() {
   const kind = confirming.value
   const vm = props.vm
   confirming.value = null
@@ -212,6 +213,10 @@ async function runSnapshot() {
     // From the console, the VM always comes back up (booting, without memory).
     else if (kind === 'revert') await api.revertSnapshot(vm.id, true)
     else if (kind === 'reset') await api.power(vm.id, 'reset')
+    else if (kind === 'destroy') {
+      await api.destroy(vm.id)
+      emit('destroyed', vm.id)
+    }
   } catch (e) {
     snapshotError.value = errorMessage(e)
   }
@@ -330,7 +335,7 @@ const soundOn = computed({
           class="h-10"
           :title="vm?.snapshot ? 'Replace the snapshot' : 'Take a snapshot'"
           :disabled="!snapshotReady"
-          @click="askSnapshot('take')"
+          @click="askConfirm('take')"
         >
           <Save class="size-5" />
         </Button>
@@ -339,7 +344,7 @@ const soundOn = computed({
           class="h-10"
           :title="vm?.snapshot ? `Revert to the snapshot from ${formatAgo(vm.snapshot.takenAt)}` : 'No snapshot to revert to'"
           :disabled="!snapshotReady || !vm?.snapshot"
-          @click="askSnapshot('revert')"
+          @click="askConfirm('revert')"
         >
           <History class="size-5" />
         </Button>
@@ -348,9 +353,18 @@ const soundOn = computed({
           class="hover:text-destructive h-10"
           title="Force reset (like pressing the reset button)"
           :disabled="!snapshotReady || vm?.power !== 'running'"
-          @click="askSnapshot('reset')"
+          @click="askConfirm('reset')"
         >
           <RotateCcw class="size-5" />
+        </Button>
+        <Button
+          variant="outline"
+          class="hover:text-destructive h-10"
+          title="Destroy the VM"
+          :disabled="!vm || vm.state === 'destroying'"
+          @click="askConfirm('destroy')"
+        >
+          <Trash2 class="size-5" />
         </Button>
       </div>
 
@@ -366,6 +380,12 @@ const soundOn = computed({
             <Checkbox id="quick-snapshot-memory" v-model="withMemory" />
             <Label for="quick-snapshot-memory" class="text-xs">Include memory</Label>
           </div>
+        </template>
+        <template v-else-if="confirming === 'destroy'">
+          <p class="text-sm font-medium">Destroy {{ vm?.name }}?</p>
+          <p class="text-muted-foreground text-xs">
+            Deletes the VM and its disks{{ vm?.snapshot ? ', snapshot included' : '' }}. This can't be undone.
+          </p>
         </template>
         <template v-else-if="confirming === 'reset'">
           <p class="text-sm font-medium">Force reset {{ vm?.name }}?</p>
@@ -383,8 +403,18 @@ const soundOn = computed({
         </template>
         <div class="flex justify-end gap-2">
           <Button variant="outline" size="sm" @click="confirming = null">Cancel</Button>
-          <Button size="sm" :variant="confirming === 'take' ? 'default' : 'destructive'" @click="runSnapshot">
-            {{ confirming === 'take' ? (vm?.snapshot ? 'Replace' : 'Take snapshot') : confirming === 'reset' ? 'Reset' : 'Revert' }}
+          <Button size="sm" :variant="confirming === 'take' ? 'default' : 'destructive'" @click="runConfirmed">
+            {{
+              confirming === 'take'
+                ? vm?.snapshot
+                  ? 'Replace'
+                  : 'Take snapshot'
+                : confirming === 'reset'
+                  ? 'Reset'
+                  : confirming === 'destroy'
+                    ? 'Destroy'
+                    : 'Revert'
+            }}
           </Button>
         </div>
       </div>
