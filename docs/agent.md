@@ -229,7 +229,13 @@ virtio-win's `viogpuap` do:
 **Linux.** With a `virtio` or `qxl` display, the console protocols resize
 Linux desktops exactly on their own: QEMU passes the client's size to the
 virtual GPU (from VNC, or from SPICE through spice-vdagent), and the desktop
-follows it. The console uses the agent only over SPICE without spice-vdagent.
+follows it. GNOME follows it by itself; on other X11 desktops (a bare
+Openbox session, say) the agent does: it keeps each display on its preferred
+mode, which is the console's size, and restarts spice-vdagent when the
+screen size settles on a new value, as outside GNOME spice-vdagent keeps
+scaling SPICE mouse positions by the size it started with. The restarted
+spice-vdagent is moved into the desktop's login session, where
+spice-vdagentd expects it. See [app-templates.md](app-templates.md#2-run-the-setup-script). The console uses the agent only over SPICE without spice-vdagent.
 The agent changes the resolution of the desktop on seat0 (the login screen's
 or the user's), as that session's user: through GNOME's display
 configuration service (Wayland or X11; applied temporarily, so nothing is

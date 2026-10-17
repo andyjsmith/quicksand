@@ -140,12 +140,11 @@ VM then has no agent network and needs setting up from the console.)
 
 ### 2. Run the setup script
 
-Copy [`scripts/app-template/`](../scripts/app-template/) into the guest and
-run it as root, naming the user to sign in:
+Copy [`scripts/app-template/setup-openbox-browsers.sh`](../scripts/app-template/setup-openbox-browsers.sh)
+into the guest and run it as root, naming the user to sign in:
 
 ```sh
 qs upload build ./scripts/app-template/setup-openbox-browsers.sh /root/
-qs upload build ./scripts/app-template/quicksand-follow-display /root/
 qs exec --timeout 1800 build 'sh /root/setup-openbox-browsers.sh andy'
 ```
 
@@ -177,18 +176,29 @@ The script:
   `/etc/xdg/openbox/rc.xml` maximizes normal windows and removes their
   decorations.
 - **Sets up the session's autostart** (`/etc/xdg/openbox/autostart`):
-  `xset s off -dpms` so the screen never blanks, a plain background, and
-  `quicksand-follow-display`.
+  `xset s off -dpms` so the screen never blanks, and a plain background.
 - **Speeds up booting**: no GRUB menu even after an unclean shutdown, and
   no snapd. See [Faster startup](#faster-startup).
 
-`quicksand-follow-display` keeps the display the size of the Quicksand
-console. QEMU offers the console's size as the display's preferred mode;
-GNOME switches to it by itself, but a bare X session stays at 800×600. The
-helper checks once a second and runs `xrandr --output <output> --preferred`
-when the current mode isn't the preferred one. (Quicksand's own agent-driven
-resizing is only used on Linux as a fallback with SPICE, and never with VNC,
-so it can't be relied on here.)
+The agent takes care of two things GNOME would otherwise do, on any X11
+desktop that isn't GNOME:
+
+- **The display follows the console.** QEMU offers the console's size as the
+  display's preferred mode; GNOME switches to it by itself, but a bare X
+  session stays at 800×600. The agent checks once a second and switches each
+  display to its preferred mode (`xrandr --output <output> --preferred`), for
+  VNC and SPICE consoles alike. An explicit resolution change through the
+  agent (`POST /v1/display`) is kept until the console's size changes.
+- **The SPICE pointer stays on target.** Outside GNOME, `spice-vdagent`
+  scales mouse positions from SPICE consoles by the screen size it started
+  with and never updates it (under GNOME, it asks GNOME instead). So after a
+  resize the pointer landed off target by the ratio of the old size to the
+  new: aim at 640,400 on a 1400×752 screen and it went to 700,376, as if the
+  screen were still 1280×800. The agent restarts `spice-vdagent` whenever the
+  screen size settles on a new value, and moves the new one into the
+  desktop's login session (its cgroup), since `spice-vdagentd` only sends
+  resize requests to the agent of the active session. VNC consoles were
+  never affected: QEMU's USB tablet takes their positions directly.
 
 GNOME stays installed but never runs. Purging it would save disk space, not
 memory.
@@ -215,7 +225,7 @@ Inside the guest, remove anything a clone shouldn't inherit, then power off:
 qs exec build 'rm -rf /var/lib/quicksand-agent/launch.json \
   /home/andy/.config/google-chrome /home/andy/.cache/google-chrome \
   /home/andy/.mozilla /home/andy/.cache/mozilla \
-  /root/setup-openbox-browsers.sh /root/quicksand-follow-display; apt-get clean'
+  /root/setup-openbox-browsers.sh; apt-get clean'
 qs exec build 'systemd-run --on-active=2 systemctl poweroff'
 ```
 

@@ -22,9 +22,9 @@ import (
 
 const (
 	launchSyncInterval = 15 * time.Second
-	// launchBootAttempts is how often a booting VM's agent is tried, 3s
-	// apart, so its app starts as soon as it can.
-	launchBootAttempts = 40
+	// launchBootAttempts is how often a booting VM's agent is tried, a
+	// second apart, so its app starts as soon as it can.
+	launchBootAttempts = 120
 )
 
 // ErrAgentTooOld is returned for agents that can't launch apps.
@@ -166,10 +166,10 @@ func (s *Service) setLaunchError(vm store.VM, err error) {
 // syncLaunchAtBoot keeps trying a booting VM's agent until it answers, so
 // its app starts right away.
 func (s *Service) syncLaunchAtBoot(id string) {
-	ctx, cancel := context.WithTimeout(context.Background(), launchBootAttempts*(agentProbeTimeout+3*time.Second))
+	ctx, cancel := context.WithTimeout(context.Background(), launchBootAttempts*(agentProbeTimeout+time.Second))
 	defer cancel()
 	for i := 0; i < launchBootAttempts; i++ {
-		if answered, _ := s.syncLaunch(ctx, id, launchAsk{}); answered || !sleepCtx(ctx, 3*time.Second) {
+		if answered, _ := s.syncLaunch(ctx, id, launchAsk{}); answered || !sleepCtx(ctx, time.Second) {
 			return
 		}
 	}

@@ -119,6 +119,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	go a.keepLinks(ctx)
 	go a.launcher.run(ctx)
+	go followDisplay(ctx)
 	for ctx.Err() == nil {
 		addr, err := a.listenAddress(ctx)
 		if err != nil {

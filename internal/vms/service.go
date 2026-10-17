@@ -27,8 +27,13 @@ const (
 	// agent answering, e.g. when the agent isn't installed.
 	bootWatchTimeout = 5 * time.Minute
 	bootStartGrace   = 30 * time.Second
-	lockWaitTimeout  = 30 * time.Minute
-	minMemoryMiB     = 256
+	// bootCheckInterval is how often a booting VM's agent is tried, so its
+	// app is launched soon after it's up; Proxmox (power state, QEMU guest
+	// agent) is asked every bootProxmoxEvery checks.
+	bootCheckInterval = time.Second
+	bootProxmoxEvery  = 3
+	lockWaitTimeout   = 30 * time.Minute
+	minMemoryMiB      = 256
 )
 
 var (
@@ -392,24 +397,27 @@ func (s *Service) watchBoot(vm store.VM, qemuAgent bool) {
 		// Proxmox starts it again; only a VM seen running (or still down
 		// after the grace period) has really stopped.
 		started, seenRunning := time.Now(), false
-		for {
-			if qemuAgent && s.pve.AgentPing(ctx, vm.Node, vm.VMID) == nil || s.agentAnswers(ctx, vm) {
+		for i := 0; ; i++ {
+			askProxmox := i%bootProxmoxEvery == 0
+			if askProxmox && qemuAgent && s.pve.AgentPing(ctx, vm.Node, vm.VMID) == nil || s.agentAnswers(ctx, vm) {
 				if s.mayLaunch(vm) {
 					go s.syncLaunchAtBoot(vm.ID)
 				}
 				return
 			}
-			if st, err := s.pve.Status(ctx, vm.Node, vm.VMID); err == nil {
-				running := st.PowerState() == "running"
-				seenRunning = seenRunning || running
-				if !running && (seenRunning || time.Since(started) > bootStartGrace) {
-					return
+			if askProxmox {
+				if st, err := s.pve.Status(ctx, vm.Node, vm.VMID); err == nil {
+					running := st.PowerState() == "running"
+					seenRunning = seenRunning || running
+					if !running && (seenRunning || time.Since(started) > bootStartGrace) {
+						return
+					}
 				}
 			}
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(3 * time.Second):
+			case <-time.After(bootCheckInterval):
 			}
 		}
 	}()

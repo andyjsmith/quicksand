@@ -294,6 +294,8 @@ func xrandrSetMode(ctx context.Context, s graphicalSession, width, height int, r
 	if _, err := asUser(ctx, s, env, "xrandr", "--output", output, "--mode", mode.id); err != nil {
 		return err
 	}
+	// Keep it, rather than following the console back to its preferred mode.
+	holdDisplay(parseXrandr(out))
 	res.Width, res.Height, res.Exact, res.Adapter = mode.width, mode.height, exact, "xrandr"
 	return nil
 }

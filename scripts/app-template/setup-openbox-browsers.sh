@@ -4,11 +4,10 @@
 # session instead of GNOME, with Chrome and Firefox installed for Quicksand
 # to launch. See docs/app-templates.md.
 #
-# Usage, as root in the guest, with quicksand-follow-display next to it:
+# Usage, as root in the guest:
 #   sh setup-openbox-browsers.sh <user to sign in>
 set -eux
 USER_NAME=${1:?usage: setup-openbox-browsers.sh <user to sign in>}
-HERE=$(dirname "$0")
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
@@ -73,11 +72,9 @@ C
 # Windows open maximized without decorations, and the screen never blanks.
 grep -q 'class="\*" type="normal"' /etc/xdg/openbox/rc.xml ||
   sed -i 's|<applications>|<applications>\n  <application class="*" type="normal"><decor>no</decor><maximized>yes</maximized></application>|' /etc/xdg/openbox/rc.xml
-install -m 0755 "$HERE/quicksand-follow-display" /usr/local/bin/quicksand-follow-display
 cat > /etc/xdg/openbox/autostart <<'A'
 xset s off -dpms
 xsetroot -solid '#1f2937'
-quicksand-follow-display &
 A
 echo /usr/sbin/lightdm > /etc/X11/default-display-manager
 systemctl disable gdm3 2>/dev/null || systemctl disable gdm || true
