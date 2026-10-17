@@ -42,6 +42,9 @@ Proxmox account (or your attention) to get one.
   You can also drop files straight onto the console.
 - Process list or tree (with the services inside each svchost on Windows),
   and the guest's open sockets.
+- App templates: VMs that come up running one app, such as Chrome or Firefox,
+  several of them from one Proxmox template. Deploy one with a link and the app
+  opens it ([docs/app-templates.md](docs/app-templates.md)).
 - Exact display resizing on Windows, where SPICE alone can't manage it.
 - Clipboard sharing on consoles that can't do it themselves (VNC, or SPICE
   without spice-vdagent). The guest only gets your clipboard when you paste.

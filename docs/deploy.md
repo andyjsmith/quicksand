@@ -81,6 +81,14 @@ new binary.
 `"$schema": "./config.schema.json"` at the top of a config file next to it
 for autocompletion and checking in editors such as VS Code.
 
+### App templates
+
+A template's `launch` has the agent keep one app running in its VMs, such as
+a browser, and `openURL` lets it be deployed to open a link. Several
+templates can share a Proxmox template. See
+[app-templates.md](app-templates.md) for the settings and for building a
+lightweight browser template.
+
 ### Expiry, suspension and quotas
 
 ```json

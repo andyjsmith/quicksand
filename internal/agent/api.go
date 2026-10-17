@@ -37,6 +37,7 @@ func (a *Agent) routes() http.Handler {
 	mux.HandleFunc("POST /v1/files/zip", a.handleZip)
 	mux.HandleFunc("POST /v1/display", a.handleDisplay)
 	mux.HandleFunc("PUT /v1/links", a.handleLinks)
+	mux.HandleFunc("PUT /v1/launch", a.handleSetLaunch)
 	mux.HandleFunc("GET /v1/clipboard", a.handleGetClipboard)
 	mux.HandleFunc("PUT /v1/clipboard", a.handleSetClipboard)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +73,9 @@ func (a *Agent) handleInfo(w http.ResponseWriter, r *http.Request) {
 			}
 			info.Interfaces = append(info.Interfaces, ai)
 		}
+	}
+	if st := a.launcher.state(); len(st.Command) > 0 {
+		info.Launch = &st
 	}
 	writeJSON(w, http.StatusOK, info)
 }

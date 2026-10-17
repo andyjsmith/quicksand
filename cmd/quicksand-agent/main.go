@@ -77,6 +77,12 @@ func main() {
 		slog.Error("load config", "err", err)
 		os.Exit(1)
 	}
+	if cfg.StateDir == "" {
+		cfg.StateDir = "/var/lib/quicksand-agent"
+		if runtime.GOOS == "windows" {
+			cfg.StateDir = filepath.Dir(*configPath)
+		}
+	}
 	a, err := agent.New(cfg)
 	if err != nil {
 		slog.Error("invalid config", "err", err)

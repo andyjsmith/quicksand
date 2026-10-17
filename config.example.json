@@ -43,6 +43,20 @@
       "agent": true,
       "filesDir": "/root",
       "serial": "serial0"
+    },
+    {
+      "id": "firefox",
+      "vmid": 102,
+      "node": "pve",
+      "name": "Firefox",
+      "description": "Firefox in a lightweight Linux VM.",
+      "os": "linux",
+      "agent": true,
+      "launch": {
+        "command": ["firefox"],
+        "openURL": ["firefox", "{url}"],
+        "restart": true
+      }
     }
   ],
   "networks": [

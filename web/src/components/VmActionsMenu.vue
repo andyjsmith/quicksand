@@ -3,6 +3,7 @@ import {
   EllipsisVertical,
   History,
   Info,
+  AppWindow,
   Moon,
   Link2,
   Link2Off,
@@ -109,6 +110,15 @@ async function snapshotAction() {
 }
 const takenAgo = computed(() => (props.vm.snapshot ? formatAgo(props.vm.snapshot.takenAt) : ''))
 
+async function relaunch() {
+  emit('error', undefined)
+  try {
+    await api.relaunch(props.vm.id)
+  } catch (e) {
+    emit('error', errorMessage(e))
+  }
+}
+
 defineExpose({ power })
 </script>
 
@@ -155,6 +165,14 @@ defineExpose({ power })
           @select="power('hibernate')"
         >
           <Moon /> Hibernate
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          v-if="vm.launch"
+          :disabled="busy || vm.power !== 'running' || vm.launch.running"
+          :title="vm.launch.running ? `${vm.launch.command[0]} is running` : `Start ${vm.launch.command[0]} again`"
+          @select="relaunch"
+        >
+          <AppWindow /> Relaunch {{ vm.launch.command[0] }}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem :disabled="busy || vm.power === 'stopped' || vm.power === 'hibernated'" @select="power('stop')">

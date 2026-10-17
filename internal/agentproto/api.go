@@ -6,7 +6,7 @@ import "time"
 const DefaultPort = 7070
 
 // Version is the agent protocol version, reported by /v1/info.
-const Version = "2"
+const Version = "3"
 
 // Info is returned by GET /v1/info.
 type Info struct {
@@ -23,6 +23,9 @@ type Info struct {
 	PathSeparator string      `json:"pathSeparator"`
 	Time          time.Time   `json:"time"`
 	Interfaces    []Interface `json:"interfaces"`
+	// Launch is the app the agent keeps running in the guest's desktop
+	// session, if it was given one (see LaunchRequest).
+	Launch *LaunchState `json:"launch,omitempty"`
 }
 
 type Interface struct {
@@ -269,3 +272,44 @@ const MaxClipboardText = 1 << 20
 
 // MaxClipboardWait caps how long GET /v1/clipboard waits for a change.
 const MaxClipboardWait = 25 * time.Second
+
+// URLPlaceholder stands for the URL in LaunchSettings.OpenURL.
+const URLPlaceholder = "{url}"
+
+// LaunchSettings describe an app the agent keeps running in the guest's
+// desktop session, as the signed-in user. The agent saves them, so they
+// survive guest reboots.
+type LaunchSettings struct {
+	// Command is the program and its arguments; empty launches nothing.
+	Command []string `json:"command,omitempty"`
+	// OpenURL, if set, opens a URL in the app: the same, with URLPlaceholder
+	// where the URL goes. It's run as well as Command when the app is
+	// running (browsers hand the URL to the running instance), and instead
+	// of it when the app isn't, so the app starts on the URL.
+	OpenURL []string `json:"openURL,omitempty"`
+	// Restart starts the app again when it exits. Otherwise it's started
+	// once per desktop session.
+	Restart bool `json:"restart,omitempty"`
+}
+
+// LaunchRequest is sent with PUT /v1/launch. Its settings replace the
+// agent's; the app is restarted only if they changed.
+type LaunchRequest struct {
+	LaunchSettings
+	// Open lists URLs to open in the app (which needs OpenURL), now or as
+	// soon as the desktop session allows.
+	Open []string `json:"open,omitempty"`
+	// Start starts the app if it isn't running, even if it was started in
+	// this session before.
+	Start bool `json:"start,omitempty"`
+}
+
+// LaunchState is what the agent is doing about its LaunchSettings,
+// returned by PUT /v1/launch and in Info.
+type LaunchState struct {
+	LaunchSettings
+	Running bool `json:"running"`
+	// Error says why the app isn't running, e.g. that nobody is signed in
+	// to the guest's desktop or the app failed to start.
+	Error string `json:"error,omitempty"`
+}

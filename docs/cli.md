@@ -79,10 +79,11 @@ template's ID names it too: with only `win10-2e1782` deployed from `win10`,
 | --- | --- |
 | `qs ls [-a]` | Your VMs (`-a`: everyone's, for administrators) |
 | `qs templates`, `qs networks` | What you can deploy, and onto which networks |
-| `qs deploy [options] <template>` | Deploy and wait until ready. Options: `--name`, `--cpus`, `--memory` (MiB), `--network`, `--no-agent` (no agent NIC: the VM is isolated from Quicksand), `--no-wait` |
+| `qs deploy [options] <template>` | Deploy and wait until ready. Options: `--name`, `--cpus`, `--memory` (MiB), `--network`, `--no-agent` (no agent NIC: the VM is isolated from Quicksand), `--url` (open a link in the VM's app, for templates that open links), `--no-wait` |
 | `qs start\|shutdown\|stop\|reboot\|reset\|suspend\|resume\|hibernate <vm>` | Power actions (`start` also resumes a hibernated VM) |
 | `qs destroy [-y] <vm>` | Destroy a VM and its disks |
 | `qs extend <vm>` | Push back a VM's expiry, where the server's `expiry` settings allow it |
+| `qs relaunch <vm>` | Start the VM's app again, for templates that launch one |
 | `qs snapshot take [--disk-only] [--force] <vm>` | Snapshot a VM, with its memory unless `--disk-only`. Each VM has one snapshot; taking another replaces it (asks first, unless `--force`) |
 | `qs snapshot revert [--force] <vm>` | Return a VM to its snapshot, which is kept so you can revert again (asks first, unless `--force`) |
 | `qs snapshot delete [--force] <vm>` | Delete a VM's snapshot (asks first, unless `--force`) |

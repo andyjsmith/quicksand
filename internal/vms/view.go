@@ -60,9 +60,11 @@ type View struct {
 	// Serial is set when shells can use the VM's serial console.
 	Serial bool `json:"serial"`
 	// Agent is set for VMs with a Quicksand agent.
-	Agent     *AgentView `json:"agent,omitempty"`
-	Owner     string     `json:"owner,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
+	Agent *AgentView `json:"agent,omitempty"`
+	// Launch is the app the VM's agent launches, if its template has one.
+	Launch    *LaunchView `json:"launch,omitempty"`
+	Owner     string      `json:"owner,omitempty"`
+	CreatedAt time.Time   `json:"createdAt"`
 }
 
 // consoleInfo caches what a VM's config says about connecting to it.
@@ -152,6 +154,7 @@ func (s *Service) View(ctx context.Context, vm store.VM) View {
 		v.Snapshot = snap
 	}
 	v.Agent = s.agentView(ctx, vm, v.Power == "running")
+	v.Launch = s.launchView(vm, v.Agent)
 	if info, ok := s.consoleInfo(ctx, vm); ok {
 		v.Consoles, v.AbsolutePointer = info.protocols, info.absolutePointer
 		_, err := s.serialPort(ctx, vm)

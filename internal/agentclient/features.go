@@ -110,6 +110,13 @@ func (c *Client) SetLinks(ctx context.Context, host string, req agentproto.LinkR
 	return out, err
 }
 
+// SetLaunch gives the agent the app to keep running, and URLs to open in it.
+func (c *Client) SetLaunch(ctx context.Context, host string, req agentproto.LaunchRequest) (agentproto.LaunchState, error) {
+	var out agentproto.LaunchState
+	err := c.do(ctx, http.MethodPut, host, "/v1/launch", req, &out)
+	return out, err
+}
+
 // Clipboard returns the guest clipboard's text; when its Seq is after, it
 // waits up to wait for the text to change first.
 func (c *Client) Clipboard(ctx context.Context, host string, after uint64, wait time.Duration) (agentproto.Clipboard, error) {

@@ -29,6 +29,10 @@ type templateView struct {
 	MaxMemoryMiB int    `json:"maxMemoryMiB"`
 	// Agent says deployments can have the Quicksand agent.
 	Agent bool `json:"agent"`
+	// Launch is the app the agent launches in deployments, if any;
+	// OpensURLs says deployments can be given a URL to open in it.
+	Launch    []string `json:"launch,omitempty"`
+	OpensURLs bool     `json:"opensURLs"`
 	// Error is set when the template can't be read from Proxmox.
 	Error string `json:"error,omitempty"`
 	// QuotaBlocked says why the user can't deploy it now (a quota is used up).
@@ -41,6 +45,9 @@ func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
 		v := templateView{
 			ID: t.ID, Name: t.Name, Description: t.Description, OS: t.OS,
 			MaxCores: t.MaxCores, MaxMemoryMiB: t.MaxMemoryMiB, Agent: t.Agent && s.cfg.Agent != nil,
+		}
+		if v.Agent && t.Launch != nil {
+			v.Launch, v.OpensURLs = t.Launch.Command, t.OpensURLs()
 		}
 		d, err := s.vms.TemplateDefaults(r.Context(), t)
 		if err != nil {
@@ -102,7 +109,11 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auditTarget(r, vm.Name)
-	auditDetail(r, "template %s, %d CPUs, %d MiB, network %s", vm.TemplateID, vm.Cores, vm.MemoryMiB, vm.NetworkID)
+	detail := fmt.Sprintf("template %s, %d CPUs, %d MiB, network %s", vm.TemplateID, vm.Cores, vm.MemoryMiB, vm.NetworkID)
+	if req.URL != "" {
+		detail += ", opening " + req.URL
+	}
+	auditDetail(r, "%s", detail)
 	writeJSON(w, http.StatusAccepted, s.vms.View(r.Context(), vm))
 }
 
@@ -290,6 +301,26 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func (s *Server) handleRelaunch(w http.ResponseWriter, r *http.Request) {
+	vm, ok := s.ownedVM(w, r)
+	if !ok {
+		return
+	}
+	switch err := s.vms.Relaunch(r.Context(), vm); {
+	case err == nil:
+	case errors.Is(err, vms.ErrBadRequest):
+		writeServiceError(w, err)
+		return
+	case errors.Is(err, vms.ErrAgentTooOld):
+		writeError(w, http.StatusNotImplemented, err)
+		return
+	default:
+		writeAgentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // using counts requests to h as use of the VM named in the path for as long

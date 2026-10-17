@@ -107,6 +107,8 @@ var migrations = []string{
 		ip       TEXT    NOT NULL DEFAULT ''
 	);
 	CREATE INDEX audit_log_at ON audit_log(at);`,
+
+	`ALTER TABLE vms ADD COLUMN open_url TEXT NOT NULL DEFAULT '';`,
 }
 
 func Open(path string) (*Store, error) {

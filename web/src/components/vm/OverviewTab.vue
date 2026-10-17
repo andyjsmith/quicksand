@@ -138,6 +138,23 @@ const agentLine = computed(() => {
                   </span>
                 </dd>
                 <dd v-else class="text-muted-foreground">{{ agentLine }}</dd>
+                <template v-if="vm.launch">
+                  <dt class="text-muted-foreground">App</dt>
+                  <dd class="flex min-w-0 items-start gap-1.5">
+                    <span
+                      class="mt-1.5 inline-block size-1.5 shrink-0 rounded-full"
+                      :class="vm.launch.running && running ? 'bg-emerald-500' : 'bg-muted-foreground'"
+                    />
+                    <span class="min-w-0">
+                      <span class="block truncate font-mono text-xs leading-5" :title="vm.launch.command.join(' ')">
+                        {{ vm.launch.command[0] }}
+                      </span>
+                      <span v-if="running" class="text-muted-foreground block text-xs">
+                        {{ vm.launch.running ? 'Running' : vm.launch.error || 'Not running' }}
+                      </span>
+                    </span>
+                  </dd>
+                </template>
               </dl>
             </CardContent>
           </Card>

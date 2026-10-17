@@ -1,0 +1,12 @@
+#!/bin/sh
+# quicksand-follow-display: keeps each connected display on its preferred
+# mode, which QEMU sets to the size of the Quicksand console. GNOME does this
+# by itself; a bare X session doesn't.
+while :; do
+  xrandr 2>/dev/null | awk '
+    / connected/ { out = $1 }
+    /^ / { if ($0 ~ /\+/) pref[out] = $1; if ($0 ~ /\*/) cur[out] = $1 }
+    END { for (o in pref) if (pref[o] != cur[o]) print o }' |
+  while read -r out; do xrandr --output "$out" --preferred; done
+  sleep 1
+done

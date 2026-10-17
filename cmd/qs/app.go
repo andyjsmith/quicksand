@@ -75,6 +75,7 @@ func newApp() *cli.Command {
 					&cli.IntFlag{Name: "memory", Usage: "memory in `MiB` (default: the template's)", HideDefault: true},
 					&cli.StringFlag{Name: "network", Usage: "network `ID` (default: the default network)"},
 					&cli.BoolFlag{Name: "no-agent", Usage: "deploy without the agent network, fully isolated from Quicksand"},
+					&cli.StringFlag{Name: "url", Usage: "open `URL` in the VM's app, for templates that open links"},
 					&cli.BoolFlag{Name: "no-wait", Usage: "return once the deployment has started"},
 				},
 				Action:        cmdDeploy,
@@ -97,6 +98,10 @@ func newApp() *cli.Command {
 			{
 				Name: "extend", Usage: "push back a VM's expiry", ArgsUsage: "<vm>", Category: catMachines,
 				Action: cmdExtend, ShellComplete: completeArgs(nil, argVM),
+			},
+			{
+				Name: "relaunch", Usage: "start a VM's app again, for templates that launch one", ArgsUsage: "<vm>", Category: catMachines,
+				Action: cmdRelaunch, ShellComplete: completeArgs(nil, argVM),
 			},
 			{
 				Name: "snapshot", Usage: "take, revert to or delete a VM's snapshot (each VM has one)", Category: catMachines,

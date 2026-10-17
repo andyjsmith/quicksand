@@ -481,6 +481,9 @@ func cmdDeploy(ctx context.Context, cmd *cli.Command) error {
 	if cmd.Bool("no-agent") {
 		req["agent"] = false
 	}
+	if u := cmd.String("url"); u != "" {
+		req["url"] = u
+	}
 	var v vm
 	if err := c.do("POST", "/api/vms", req, &v); err != nil {
 		return err
@@ -613,6 +616,14 @@ func cmdPower(action string, cmd *cli.Command) error {
 	}
 	fmt.Fprintf(os.Stderr, "Sent %s to %s.\n", action, v.Name)
 	return nil
+}
+
+func cmdRelaunch(ctx context.Context, cmd *cli.Command) error {
+	c, v, err := vmArg(cmd.Args().Slice(), "qs relaunch <vm>")
+	if err != nil {
+		return err
+	}
+	return c.do("POST", "/api/vms/"+url.PathEscape(v.ID)+"/relaunch", nil, nil)
 }
 
 func cmdExtend(ctx context.Context, cmd *cli.Command) error {

@@ -327,6 +327,33 @@
           "type": "string",
           "enum": ["", "serial0", "serial1", "serial2", "serial3"],
           "description": "Enables shells over this serial port (added as a socket when deploying if the template lacks it). The guest must run a login prompt on it."
+        },
+        "launch": {
+          "type": "object",
+          "description": "Has the agent keep an app running in the guest's desktop session, as the signed-in user (Linux guests only, for now). Needs agent. Several templates can share one Proxmox template (vmid), each launching a different app. See docs/agent.md.",
+          "additionalProperties": false,
+          "required": ["command"],
+          "properties": {
+            "command": {
+              "type": "array",
+              "items": { "type": "string" },
+              "minItems": 1,
+              "description": "The program and its arguments. No shell is involved.",
+              "examples": [["google-chrome", "--start-maximized", "--no-first-run"]]
+            },
+            "openURL": {
+              "type": "array",
+              "items": { "type": "string" },
+              "minItems": 1,
+              "description": "Lets the template open links: deploying it with a URL (e.g. from \"Open in Quicksand\") starts the app with this command instead, with {url} replaced by the URL as part of one argument. Only http and https URLs are accepted.",
+              "examples": [["google-chrome", "--start-maximized", "--no-first-run", "{url}"]]
+            },
+            "restart": {
+              "type": "boolean",
+              "default": true,
+              "description": "Start the app again whenever it exits. Otherwise it's started once each time someone signs in to the guest."
+            }
+          }
         }
       }
     },

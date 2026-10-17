@@ -138,6 +138,7 @@ network isn't ready and keeps waiting.
 | `port`           | TCP port (default 7070); must match Quicksand's `agent.port`.           |
 | `network`        | Find the NIC whose MAC starts with `macPrefix` (default `02:51:53`), give it the address encoded in its MAC with no gateway, and listen only there. Must match Quicksand's `agent.network`. |
 | `listen`         | Listen on this address instead (e.g. `127.0.0.1:7070`); for testing.    |
+| `stateDir`       | Where the agent keeps what it must remember across restarts, such as the app to launch (default `/var/lib/quicksand-agent`, or the config's folder on Windows). |
 
 Without `network` or `listen`, the agent listens on all interfaces.
 
@@ -180,6 +181,22 @@ All endpoints require the authenticated TLS connection described above.
   `xclip`, `xsel` or `wl-clipboard` as the desktop user, so install one of them
   (xclip works on GNOME's Wayland sessions too). Without them, or with no one
   logged in, the endpoints answer 501.
+
+- `PUT /v1/launch` — the app to keep running in the guest's desktop session,
+  as the signed-in user (Linux only, for now):
+  ```json
+  { "command": ["firefox"], "openURL": ["firefox", "{url}"], "restart": true,
+    "open": ["https://example.com/"], "start": false }
+  ```
+  The settings (`command`, `openURL`, `restart`) replace the agent's and are
+  saved in `stateDir`; the app is restarted only if they changed, and an
+  empty `command` stops it. `open` lists URLs to open: if the app isn't
+  running yet, it's started with `openURL` (with `{url}` replaced) instead of
+  `command`, and if it is, `openURL` is run as well, which browsers hand to
+  the running instance. `start` starts the app if it isn't running, even
+  without `restart`. Returns the settings with `running` and `error`, which
+  `GET /v1/info` also reports as `launch`. Quicksand sends this for templates
+  with `launch`; see [app-templates.md](app-templates.md).
 
 Quicksand exposes these to signed-in users (for their own VMs) as
 `GET /api/vms/{id}/agent` and `POST /api/vms/{id}/exec`, and in the console's

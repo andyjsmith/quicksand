@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -34,6 +35,10 @@ type Config struct {
 	Network *NetworkConfig `json:"network,omitempty"`
 	// Listen overrides the listen address, e.g. "127.0.0.1:7070" for testing.
 	Listen string `json:"listen,omitempty"`
+	// StateDir is where the agent keeps what it must remember across
+	// restarts, such as the app to launch (default /var/lib/quicksand-agent,
+	// or the configuration's directory on Windows).
+	StateDir string `json:"stateDir,omitempty"`
 }
 
 type NetworkConfig struct {
@@ -65,6 +70,7 @@ type Agent struct {
 	network   *agentproto.AgentNetwork
 	links     linkSet
 	clipboard clipboardState
+	launcher  *launcher
 	handler   http.Handler
 }
 
@@ -87,6 +93,11 @@ func New(cfg Config) (*Agent, error) {
 		}
 		a.network = &n
 	}
+	launchPath := ""
+	if cfg.StateDir != "" {
+		launchPath = filepath.Join(cfg.StateDir, "launch.json")
+	}
+	a.launcher = newLauncher(launchPath)
 	a.handler = a.routes()
 	return a, nil
 }
@@ -107,6 +118,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 	go a.keepLinks(ctx)
+	go a.launcher.run(ctx)
 	for ctx.Err() == nil {
 		addr, err := a.listenAddress(ctx)
 		if err != nil {

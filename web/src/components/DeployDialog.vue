@@ -35,6 +35,7 @@ const cores = ref(1)
 const memory = ref('1024')
 const networkId = ref('')
 const withAgent = ref(true)
+const url = ref('')
 const error = ref<string>()
 const busy = ref(false)
 
@@ -53,6 +54,7 @@ watch(open, (o) => {
   cores.value = props.template.cores
   memory.value = String(props.template.memoryMiB)
   withAgent.value = true
+  url.value = ''
   networkId.value = (props.networks.find((n) => n.default) ?? props.networks[0])?.id ?? ''
   error.value = undefined
 })
@@ -68,7 +70,8 @@ async function submit() {
       cores: cores.value,
       memoryMiB: Number(memory.value),
       networkId: networkId.value,
-      agent: props.template.agent ? withAgent.value : undefined,
+      agent: props.template.agent ? withAgent.value || !!url.value.trim() : undefined,
+      url: props.template.opensURLs && url.value.trim() ? url.value.trim() : undefined,
     })
     emit('deployed', vm)
     open.value = false
@@ -127,13 +130,23 @@ async function submit() {
             </SelectContent>
           </Select>
         </div>
-        <div v-if="template.agent" class="flex items-start gap-2.5">
-          <Checkbox id="deploy-agent" v-model="withAgent" class="mt-0.5" />
+        <div v-if="template?.opensURLs" class="flex flex-col gap-1.5">
+          <Label for="deploy-url">Open link <span class="text-muted-foreground font-normal">(optional)</span></Label>
+          <Input id="deploy-url" v-model="url" type="url" placeholder="https://" />
+        </div>
+        <div v-if="template?.agent" class="flex items-start gap-2.5">
+          <Checkbox
+            id="deploy-agent"
+            :model-value="withAgent || !!url.trim()"
+            :disabled="!!url.trim()"
+            class="mt-0.5"
+            @update:model-value="withAgent = !!$event"
+          />
           <div class="flex flex-col gap-1">
             <Label for="deploy-agent">Enable agent</Label>
             <p class="text-muted-foreground text-xs">
               Connects the VM to Quicksand's agent network for processes, files and commands. Turn it off to keep
-              the VM completely isolated from Quicksand.
+              the VM completely isolated from Quicksand.{{ template?.launch ? ' The agent also launches the app.' : '' }}
             </p>
           </div>
         </div>

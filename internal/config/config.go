@@ -321,12 +321,43 @@ type Template struct {
 	FilesDir string `json:"filesDir"`
 	// Quota limits how many VMs of this template exist at once.
 	Quota *Quota `json:"quota,omitempty"`
+	// Launch, for templates with the agent, has the agent keep an app
+	// running in the guest's desktop session. Several templates can share
+	// a VM template, each launching a different app.
+	Launch *Launch `json:"launch,omitempty"`
 	// Serial enables shells over a serial console: the Proxmox serial
 	// port to use, "serial0" to "serial3". Deploys add it (as a socket)
 	// when the template lacks it. The guest must run a login prompt on
 	// the port (e.g. serial-getty@ttyS0 on Linux, or console=ttyS0).
 	Serial string `json:"serial"`
 }
+
+// Launch is an app the agent keeps running in the guest's desktop session,
+// as the signed-in user (Linux guests only, for now).
+type Launch struct {
+	// Command is the program and its arguments, e.g. ["firefox"]. No shell
+	// is involved.
+	Command []string `json:"command"`
+	// OpenURL, if set, lets the template open links: deploying it with a
+	// URL starts the app with this command instead, with "{url}" replaced
+	// by the URL (as part of one argument), e.g. ["firefox", "{url}"].
+	OpenURL []string `json:"openURL"`
+	// Restart starts the app again whenever it exits (default true).
+	// Otherwise it's started once each time someone signs in.
+	Restart *bool `json:"restart"`
+}
+
+// Settings are the launch settings for the agent; none for a nil Launch.
+func (l *Launch) Settings() agentproto.LaunchSettings {
+	if l == nil {
+		return agentproto.LaunchSettings{}
+	}
+	return agentproto.LaunchSettings{Command: l.Command, OpenURL: l.OpenURL, Restart: l.Restart == nil || *l.Restart}
+}
+
+// OpensURLs reports whether the template can be deployed with a URL to
+// open.
+func (t Template) OpensURLs() bool { return t.Launch != nil && len(t.Launch.OpenURL) > 0 }
 
 // Network is a bridge (optionally with a VLAN tag) deployments can attach
 // to, or no network at all.
@@ -406,6 +437,17 @@ func (c *Config) validate() error {
 		}
 		if t.Serial != "" && !slices.Contains([]string{"serial0", "serial1", "serial2", "serial3"}, t.Serial) {
 			return fmt.Errorf("templates[%d]: serial must be serial0 to serial3", i)
+		}
+		if l := t.Launch; l != nil {
+			if !t.Agent {
+				return fmt.Errorf("templates[%d]: launch needs the agent (set agent)", i)
+			}
+			if len(l.Command) == 0 {
+				return fmt.Errorf("templates[%d]: launch.command is required", i)
+			}
+			if err := l.Settings().Validate(); err != nil {
+				return fmt.Errorf("templates[%d].launch: %w", i, err)
+			}
 		}
 	}
 	if len(c.Templates) > 0 && len(c.Networks) == 0 {

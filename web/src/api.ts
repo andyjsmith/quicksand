@@ -57,6 +57,10 @@ export interface Template {
   maxMemoryMiB: number
   /** Deployments can have the Quicksand agent. */
   agent: boolean
+  /** The app the agent launches in deployments, if any. */
+  launch?: string[]
+  /** Deployments can be given a URL to open in that app. */
+  opensURLs: boolean
   /** Set when the template can't be read from Proxmox. */
   error?: string
   /** Why the user can't deploy it right now (a quota is used up). */
@@ -156,9 +160,20 @@ export interface VM {
   absolutePointer: boolean
   /** Set for VMs with a Quicksand agent. */
   agent?: AgentStatus
+  /** The app the agent launches, for templates with one. */
+  launch?: VMLaunch
   /** Set when an administrator lists everyone's VMs. */
   owner?: string
   createdAt: string
+}
+
+export interface VMLaunch {
+  command: string[]
+  opensURLs: boolean
+  /** As far as the agent last said. */
+  running: boolean
+  /** Why it isn't running, or why the agent can't launch it. */
+  error?: string
 }
 
 export interface AgentStatus {
@@ -205,6 +220,8 @@ export interface DeployRequest {
   networkId: string
   /** For templates with the agent: false deploys without the agent NIC. */
   agent?: boolean
+  /** For templates that open links: a URL to open in the VM's app. */
+  url?: string
 }
 
 export interface ProcessList {
@@ -366,6 +383,7 @@ export const api = {
   renameLink: (id: number, name: string) => request<void>('PATCH', `/api/links/${id}`, { name }),
   /** Pushes back a VM's expiry by the configured extension. */
   extend: (id: string) => request<VM>('POST', `${vmPath(id)}/extend`),
+  relaunch: (id: string) => request<void>('POST', `${vmPath(id)}/relaunch`),
   power: (id: string, action: PowerAction) => request<void>('POST', `${vmPath(id)}/power`, { action }),
   exec: (id: string, req: ExecRequest) => request<ExecResult>('POST', `${vmPath(id)}/exec`, req),
   createConsole: (id: string, protocol: ConsoleProtocol) =>

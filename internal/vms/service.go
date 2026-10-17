@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"quicksand/internal/agentclient"
+	"quicksand/internal/agentproto"
 	"quicksand/internal/config"
 	"quicksand/internal/pve"
 	"quicksand/internal/store"
@@ -57,6 +58,8 @@ type Service struct {
 	snapshots map[string]*SnapshotInfo
 	// usage tracks how each VM is being used, for suspending idle ones.
 	usage map[string]*usage
+	// launchErrors holds why telling each VM's agent what to launch failed.
+	launchErrors map[string]string
 	// linkMu serializes link network changes; linkStates holds whether each
 	// linked VM's agent has set its address.
 	linkMu     sync.Mutex
@@ -87,7 +90,7 @@ type actionState struct {
 func NewService(cfg *config.Config, client *pve.Client, s *store.Store, hub *Hub, agents *agentclient.Client) *Service {
 	return &Service{cfg: cfg, pve: client, store: s, hub: hub, jobs: map[string]*job{}, actions: map[string]actionState{},
 		consoles: map[string]consoleInfo{}, boots: map[string]*bootWatch{}, snapshots: map[string]*SnapshotInfo{},
-		usage:      map[string]*usage{},
+		usage: map[string]*usage{}, launchErrors: map[string]string{},
 		linkStates: map[string]linkState{},
 		agents:     agents, probes: agentProbes{results: map[string]agentProbe{}}}
 }
@@ -134,6 +137,9 @@ type DeployRequest struct {
 	// Agent, for templates with the agent, connects the VM to the agent
 	// network (default true). False deploys it without the agent NIC.
 	Agent *bool `json:"agent"`
+	// URL, for templates that open links, is opened in the VM's app once
+	// it starts.
+	URL string `json:"url"`
 }
 
 var nameInvalid = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -168,6 +174,16 @@ func (s *Service) Deploy(ctx context.Context, owner store.User, req DeployReques
 		return store.VM{}, fmt.Errorf("%w: memory must be between %d and %d MiB", ErrBadRequest, minMemoryMiB, tmpl.MaxMemoryMiB)
 	}
 
+	withAgent := tmpl.Agent && s.cfg.Agent != nil && (req.Agent == nil || *req.Agent)
+	if req.URL != "" {
+		if !tmpl.OpensURLs() || !withAgent {
+			return store.VM{}, fmt.Errorf("%w: %s can't open links", ErrBadRequest, tmpl.Name)
+		}
+		if err := agentproto.CheckOpenURL(req.URL); err != nil {
+			return store.VM{}, fmt.Errorf("%w: %v", ErrBadRequest, err)
+		}
+	}
+
 	id := newID()
 	// Proxmox names must be valid DNS labels.
 	name := strings.Trim(nameInvalid.ReplaceAllString(strings.ToLower(req.Name), "-"), "-")
@@ -188,14 +204,13 @@ func (s *Service) Deploy(ctx context.Context, owner store.User, req DeployReques
 	vm, err := s.store.CreateVM(ctx, store.VM{
 		ID: id, OwnerID: owner.ID, Name: name, TemplateID: tmpl.ID, Node: tmpl.Node,
 		Cores: req.Cores, MemoryMiB: req.MemoryMiB, NetworkID: network.ID,
-		State: store.VMDeploying, Step: "Queued", ExpiresAt: s.expiryFor(time.Now()),
+		State: store.VMDeploying, Step: "Queued", ExpiresAt: s.expiryFor(time.Now()), OpenURL: req.URL,
 	}, s.cfg.VMIDs.From, s.cfg.VMIDs.To, existing, s.quotaLimits(tmpl, owner)...)
 	if err != nil {
 		return store.VM{}, err
 	}
 	s.publish(vm)
 	slog.Info("deploying vm", "id", vm.ID, "vmid", vm.VMID, "template", tmpl.ID, "owner", owner.Username)
-	withAgent := tmpl.Agent && s.cfg.Agent != nil && (req.Agent == nil || *req.Agent)
 	s.startJob(vm.ID, func(ctx context.Context) { s.runDeploy(ctx, vm, tmpl, network, owner, withAgent) })
 	return vm, nil
 }
@@ -377,6 +392,9 @@ func (s *Service) watchBoot(vm store.VM, qemuAgent bool) {
 		started, seenRunning := time.Now(), false
 		for {
 			if qemuAgent && s.pve.AgentPing(ctx, vm.Node, vm.VMID) == nil || s.agentAnswers(ctx, vm) {
+				if s.mayLaunch(vm) {
+					go s.syncLaunchAtBoot(vm.ID)
+				}
 				return
 			}
 			if st, err := s.pve.Status(ctx, vm.Node, vm.VMID); err == nil {
@@ -565,6 +583,7 @@ func (s *Service) remove(vm store.VM) {
 	delete(s.snapshots, vm.ID)
 	delete(s.linkStates, vm.ID)
 	delete(s.usage, vm.ID)
+	delete(s.launchErrors, vm.ID)
 	s.mu.Unlock()
 	s.forgetProbe(vm.ID)
 	slog.Info("vm destroyed", "id", vm.ID, "vmid", vm.VMID)

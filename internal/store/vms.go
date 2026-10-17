@@ -52,10 +52,13 @@ type VM struct {
 	// address on link networks, kept from when it was first linked.
 	LinkID int64
 	LinkIP string
+	// OpenURL is a URL to open in the VM's launched app, kept until its
+	// agent has been told.
+	OpenURL string
 }
 
 const vmColumns = `id, owner_id, name, template_id, node, vmid, cores, memory_mib, network_id,
-	state, step, progress, error, created_at, agent_ip, expires_at, extends, link_id, link_ip`
+	state, step, progress, error, created_at, agent_ip, expires_at, extends, link_id, link_ip, open_url`
 
 func scanVM(row interface{ Scan(...any) error }) (VM, error) {
 	var v VM
@@ -63,7 +66,7 @@ func scanVM(row interface{ Scan(...any) error }) (VM, error) {
 	var link sql.NullInt64
 	err := row.Scan(&v.ID, &v.OwnerID, &v.Name, &v.TemplateID, &v.Node, &v.VMID, &v.Cores, &v.MemoryMiB,
 		&v.NetworkID, &v.State, &v.Step, &v.Progress, &v.Error, &created, &v.AgentIP, &expires, &v.Extends,
-		&link, &v.LinkIP)
+		&link, &v.LinkIP, &v.OpenURL)
 	v.LinkID = link.Int64
 	if errors.Is(err, sql.ErrNoRows) {
 		return VM{}, ErrNotFound
@@ -138,9 +141,9 @@ func (s *Store) CreateVM(ctx context.Context, v VM, fromID, toID int, exclude ma
 
 	v.CreatedAt = time.Now().UTC().Truncate(time.Second)
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO vms (`+vmColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '')`,
+		`INSERT INTO vms (`+vmColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?)`,
 		v.ID, v.OwnerID, v.Name, v.TemplateID, v.Node, v.VMID, v.Cores, v.MemoryMiB, v.NetworkID,
-		v.State, v.Step, v.Progress, v.Error, unix(v.CreatedAt), v.AgentIP, unixOrZero(v.ExpiresAt), v.Extends)
+		v.State, v.Step, v.Progress, v.Error, unix(v.CreatedAt), v.AgentIP, unixOrZero(v.ExpiresAt), v.Extends, v.OpenURL)
 	if err != nil {
 		return VM{}, err
 	}
@@ -220,6 +223,13 @@ func (s *Store) SetMissingExpiry(ctx context.Context, expiresAt time.Time) (int6
 		return 0, err
 	}
 	return r.RowsAffected()
+}
+
+// ClearVMOpenURL forgets a VM's URL to open once its agent has it, unless
+// it has changed since.
+func (s *Store) ClearVMOpenURL(ctx context.Context, id, url string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE vms SET open_url = '' WHERE id = ? AND open_url = ?`, id, url)
+	return err
 }
 
 func unixOrZero(t time.Time) int64 {
