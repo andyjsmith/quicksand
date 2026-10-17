@@ -64,8 +64,12 @@ Launching is done by the guest agent (Linux guests only, for now):
    the app comes back after a guest reboot without the server.
 3. The agent waits for someone to be signed in to the guest's screen (seat0;
    in the browser template, LightDM signs the user in automatically). It
-   then starts the app as that user, with the environment of their session
-   (`DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, session bus and so on).
+   watches systemd-logind's session files (`/run/systemd/sessions` and
+   `/run/systemd/seats`, with inotify), so it hears about a sign-in at once,
+   and checks every 10 seconds as well. It then starts the app as that user,
+   with the environment of their session (`DISPLAY`, `XAUTHORITY`,
+   `WAYLAND_DISPLAY`, session bus and so on): in the browser template, a
+   few tenths of a second after the sign-in.
 4. If the app exits and `restart` is on, it's started again after a delay
    that grows with quick failures: 1s, 2s, 4s, up to a minute, and back to
    1s once it has run for a minute. If someone signs in afresh, the app is
@@ -84,8 +88,8 @@ the VM's page says the agent is too old: update the agent in the template.
 
 ## Opening links
 
-"Open in Quicksand" always deploys a new VM; it never opens a link in a VM
-that's already running. There are three ways in:
+A link opens in a new VM of a template that opens links, or in a new tab of
+one of the user's running VMs that can. There are three ways in:
 
 - **The browser extension** adds "Open in Quicksand" to the menu of links.
   See [extension.md](extension.md).
@@ -93,19 +97,23 @@ that's already running. There are three ways in:
   (with the link URL-encoded, and optionally `&network=<ID>` to choose the
   network to start with), is what the extension uses, and works from
   anywhere: bookmarklets, other tools. It runs in the user's own Quicksand
-  session (sending them to sign in first if needed), shows the link, the
-  template and the network (which they can change), and deploys when they
-  click **Open**. It then goes to the new
-  VM's console, which shows the deployment and connects when it's up. It
-  asks first because any site could send someone there.
+  session (sending them to sign in first if needed) and shows the link. By
+  default it deploys a **New VM** of the template, on the network shown
+  (which they can change); **Existing VM** instead lists their running VMs
+  that open links, those of the same template first. Nothing happens until
+  they click **Open**, because any site could send someone there. Then it
+  goes to the VM's console, which for a new VM shows the deployment and
+  connects when it's up.
 - **The API**, with an API token (`Authorization: Bearer qst_...`):
   `GET /api/templates` lists templates, with `"opensURLs": true` on those that
   can open links; `POST /api/vms` with
   `{"templateId": "chrome", "url": "https://example.com/"}` deploys one (with
   a generated name and the template's defaults unless given); and
   `GET /api/vms/{id}` follows it until `state` is `ready` and
-  `launch.running` is true. From the command line:
-  `qs deploy --url https://example.com/ chrome`.
+  `launch.running` is true. `POST /api/vms/{id}/open` with
+  `{"url": "https://example.com/"}` opens a link in a running VM's app
+  instead. From the command line: `qs deploy --url https://example.com/ chrome`
+  and `qs open <vm> https://example.com/`.
 
 A template that can't open links, or a URL that isn't `http`/`https`, is
 refused with an explanation.

@@ -83,6 +83,7 @@ template's ID names it too: with only `win10-2e1782` deployed from `win10`,
 | `qs start\|shutdown\|stop\|reboot\|reset\|suspend\|resume\|hibernate <vm>` | Power actions (`start` also resumes a hibernated VM) |
 | `qs destroy [-y] <vm>` | Destroy a VM and its disks |
 | `qs extend <vm>` | Push back a VM's expiry, where the server's `expiry` settings allow it |
+| `qs open <vm> <url>` | Open a link in a running VM's app (a new tab, for browsers), for templates that open links |
 | `qs relaunch <vm>` | Start the VM's app again, for templates that launch one |
 | `qs snapshot take [--disk-only] [--force] <vm>` | Snapshot a VM, with its memory unless `--disk-only`. Each VM has one snapshot; taking another replaces it (asks first, unless `--force`) |
 | `qs snapshot revert [--force] <vm>` | Return a VM to its snapshot, which is kept so you can revert again (asks first, unless `--force`) |

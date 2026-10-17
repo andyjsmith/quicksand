@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/user"
@@ -12,6 +13,10 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
+	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
 // linuxDesktop is the graphical session on seat0 and its user's
@@ -67,6 +72,64 @@ func (d linuxDesktop) Command(argv []string) (*exec.Cmd, error) {
 	// Its own process group, so stopping it stops what it started too.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred, Setpgid: true}
 	return cmd, nil
+}
+
+// sessionDirs are where systemd-logind keeps the state of sessions (a file
+// each) and seats (which session is on screen).
+var sessionDirs = []string{"/run/systemd/sessions", "/run/systemd/seats"}
+
+// watchSessions calls changed whenever logind's session or seat files
+// change, e.g. when someone signs in, until ctx ends. If the directories
+// aren't there yet (logind starting after the agent), it tries again every
+// few seconds.
+func watchSessions(ctx context.Context, changed func()) {
+	for ctx.Err() == nil {
+		if err := watchDirs(ctx, sessionDirs, changed); err != nil && ctx.Err() == nil {
+			slog.Debug("watch sessions", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+func watchDirs(ctx context.Context, dirs []string, changed func()) error {
+	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
+	if err != nil {
+		return err
+	}
+	// Non-blocking, so reads go through Go's poller and Close ends them.
+	f := os.NewFile(uintptr(fd), "inotify")
+	defer f.Close()
+	for _, dir := range dirs {
+		const mask = unix.IN_CREATE | unix.IN_DELETE | unix.IN_MOVED_TO | unix.IN_CLOSE_WRITE | unix.IN_DELETE_SELF
+		if _, err := unix.InotifyAddWatch(fd, dir, mask); err != nil {
+			return fmt.Errorf("%s: %w", dir, err)
+		}
+	}
+	stop := context.AfterFunc(ctx, func() { f.Close() })
+	defer stop()
+	// Something may have changed before the watch began.
+	changed()
+	buf := make([]byte, 64<<10)
+	for {
+		n, err := f.Read(buf)
+		if err != nil {
+			return err
+		}
+		// Which file changed doesn't matter, but a directory going away
+		// (logind restarting) needs the watch set up again.
+		for off := 0; off+unix.SizeofInotifyEvent <= n; {
+			ev := (*unix.InotifyEvent)(unsafe.Pointer(&buf[off]))
+			if ev.Mask&(unix.IN_DELETE_SELF|unix.IN_IGNORED) != 0 {
+				changed()
+				return errors.New("a watched directory went away")
+			}
+			off += unix.SizeofInotifyEvent + int(ev.Len)
+		}
+		changed()
+	}
 }
 
 // terminate asks the app and its process group to quit.

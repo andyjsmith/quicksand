@@ -323,6 +323,33 @@ func (s *Server) handleRelaunch(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleOpenURL(w http.ResponseWriter, r *http.Request) {
+	vm, ok := s.ownedVM(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		URL string `json:"url"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	auditDetail(r, "%s", req.URL)
+	switch err := s.vms.OpenURL(r.Context(), vm, req.URL); {
+	case err == nil:
+	case errors.Is(err, vms.ErrBadRequest):
+		writeServiceError(w, err)
+		return
+	case errors.Is(err, vms.ErrAgentTooOld):
+		writeError(w, http.StatusNotImplemented, err)
+		return
+	default:
+		writeAgentError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // using counts requests to h as use of the VM named in the path for as long
 // as they last (so for shells and the like, while they're open), keeping
 // it from being suspended as idle.

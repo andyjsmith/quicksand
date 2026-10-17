@@ -172,3 +172,53 @@ func TestLauncherSavesSettings(t *testing.T) {
 		t.Errorf("loaded %+v, want %+v", got, want)
 	}
 }
+
+func TestWatchDirs(t *testing.T) {
+	dirs := []string{t.TempDir(), t.TempDir()}
+	changes := make(chan struct{}, 100)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- watchDirs(ctx, dirs, func() { changes <- struct{}{} }) }()
+	wait := func(what string) {
+		t.Helper()
+		select {
+		case <-changes:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("no change reported for %s", what)
+		}
+	}
+	wait("the watch starting")
+	// logind writes a temporary file and renames it into place.
+	tmp := filepath.Join(dirs[0], ".#3abc")
+	os.WriteFile(tmp, []byte("STATE=active\n"), 0o644)
+	wait("a new file")
+	os.Rename(tmp, filepath.Join(dirs[0], "3"))
+	wait("a rename")
+	os.WriteFile(filepath.Join(dirs[1], "seat0"), []byte("ACTIVE=3\n"), 0o644)
+	wait("the second directory")
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("watch didn't stop when cancelled")
+	}
+}
+
+func TestLauncherHurriesAfterSessionChange(t *testing.T) {
+	session := "1"
+	l := testLauncher(t, &session)
+	l.set(agentproto.LaunchRequest{LaunchSettings: agentproto.LaunchSettings{Command: []string{"sleep", "30"}}})
+	if got := l.interval(); got != launchCheckInterval {
+		t.Errorf("interval before a session change = %v", got)
+	}
+	l.sessionsChanged()
+	if got := l.interval(); got != launchHurryInterval {
+		t.Errorf("interval after a session change = %v", got)
+	}
+	if appPID(l) == 0 {
+		t.Fatal("app not started")
+	}
+	if got := l.interval(); got != launchCheckInterval {
+		t.Errorf("interval with the app running = %v", got)
+	}
+}

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { useTitle } from '@vueuse/core'
-import { CircleAlert, ExternalLink, Rocket } from '@lucide/vue'
+import { CircleAlert, ExternalLink, Monitor, Plus, Rocket } from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { api, errorMessage, type Network, type Template } from '@/api'
+import { api, errorMessage, type Network, type Template, type VM } from '@/api'
 import AppHeader from '@/components/AppHeader.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -11,12 +11,14 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { formatMemory, osIcon } from '@/lib/format'
 
-// /open?template=ID&url=URL[&network=ID] deploys a VM of the template to
-// open the URL, e.g. from the "Open in Quicksand" browser extension, on the
-// network given (or chosen here). It asks first: any site could send
-// someone here, and shouldn't deploy VMs in their name.
+// /open?template=ID&url=URL[&network=ID] opens the URL, e.g. from the
+// "Open in Quicksand" browser extension: in a new VM of the template, on the
+// network given (or chosen here), or in one of the user's running VMs that
+// opens links. It asks first: any site could send someone here, and
+// shouldn't deploy VMs or open pages in their name.
 
 useTitle('Open link · Quicksand')
 
@@ -28,6 +30,11 @@ const url = computed(() => (typeof route.query.url === 'string' ? route.query.ur
 const template = ref<Template>()
 const networks = ref<Network[]>([])
 const networkId = ref('')
+// mode is whether to open the link in a new VM or an existing one; vms are
+// the user's running VMs that can open it.
+const mode = ref<'new' | 'existing'>('new')
+const vms = ref<VM[]>([])
+const vmId = ref('')
 const loading = ref(true)
 const busy = ref(false)
 const error = ref<string>()
@@ -41,8 +48,9 @@ const problem = computed(() => {
   } catch {
     return `"${url.value}" isn't a link.`
   }
-  if (!templateId.value) return 'No template given.'
   if (loading.value) return undefined
+  if (mode.value === 'existing') return vmId.value ? undefined : 'Choose a VM.'
+  if (!templateId.value) return 'No template given.'
   if (!template.value) return `There's no template "${templateId.value}".`
   if (!template.value.opensURLs) return `${template.value.name} can't open links.`
   return template.value.quotaBlocked || template.value.error
@@ -50,9 +58,15 @@ const problem = computed(() => {
 
 onMounted(async () => {
   try {
-    const [t, n] = await Promise.all([api.templates(), api.networks()])
+    const [t, n, v] = await Promise.all([api.templates(), api.networks(), api.vms()])
     template.value = t.find((t) => t.id === templateId.value)
     networks.value = n
+    // Running VMs that open links, those of the template first (newest
+    // first, as listed).
+    vms.value = v
+      .filter((vm) => vm.state === 'ready' && vm.power === 'running' && vm.launch?.opensURLs)
+      .sort((a, b) => Number(b.templateId === templateId.value) - Number(a.templateId === templateId.value))
+    vmId.value = vms.value[0]?.id ?? ''
     // The network asked for, if there is one, else the default.
     const asked = typeof route.query.network === 'string' ? route.query.network : ''
     networkId.value = (n.find((x) => x.id === asked) ?? n.find((x) => x.default) ?? n[0])?.id ?? ''
@@ -64,10 +78,16 @@ onMounted(async () => {
 })
 
 async function open() {
-  if (!template.value || problem.value) return
+  if (problem.value) return
   busy.value = true
   error.value = undefined
   try {
+    if (mode.value === 'existing') {
+      await api.openURL(vmId.value, url.value)
+      router.replace({ name: 'console', params: { id: vmId.value } })
+      return
+    }
+    if (!template.value) return
     const vm = await api.deploy({
       templateId: template.value.id,
       name: '',
@@ -92,9 +112,15 @@ async function open() {
       <Card>
         <CardHeader>
           <CardTitle class="flex items-center gap-2">
-            <ExternalLink class="size-4" /> Open link{{ template ? ` in ${template.name}` : '' }}
+            <ExternalLink class="size-4" /> Open link
           </CardTitle>
-          <CardDescription>This deploys a new VM and opens the link in it.</CardDescription>
+          <CardDescription>
+            {{
+              mode === 'new'
+                ? `This deploys a new ${template?.name ?? ''} VM and opens the link in it.`
+                : 'This opens the link in a new tab of a VM you already have.'
+            }}
+          </CardDescription>
         </CardHeader>
         <CardContent class="flex flex-col gap-4">
           <p
@@ -107,7 +133,36 @@ async function open() {
           <div v-if="loading" class="text-muted-foreground flex items-center gap-2 text-sm">
             <Spinner class="size-4" /> Loading…
           </div>
-          <div v-else-if="template" class="flex items-center gap-3 text-sm">
+          <ToggleGroup
+            v-if="!loading"
+            :model-value="mode"
+            type="single"
+            variant="outline"
+            class="w-full"
+            @update:model-value="(v) => v && (mode = v as 'new' | 'existing')"
+          >
+            <ToggleGroupItem value="new" class="flex-1"><Plus /> New VM</ToggleGroupItem>
+            <ToggleGroupItem
+              value="existing"
+              class="flex-1"
+              :disabled="!vms.length"
+              :title="vms.length ? undefined : 'None of your running VMs can open links'"
+            >
+              <Monitor /> Existing VM
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <div v-if="!loading && mode === 'existing'" class="flex flex-col gap-1.5">
+            <Label for="open-vm">VM</Label>
+            <Select v-model="vmId">
+              <SelectTrigger id="open-vm" class="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="vm in vms" :key="vm.id" :value="vm.id">
+                  {{ vm.name }} <span class="text-muted-foreground">· {{ vm.templateName }}</span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div v-else-if="template && mode === 'new'" class="flex items-center gap-3 text-sm">
             <div class="bg-muted flex size-9 shrink-0 items-center justify-center rounded-md">
               <component :is="osIcon(template.os)" class="size-4" />
             </div>
@@ -118,7 +173,7 @@ async function open() {
               </p>
             </div>
           </div>
-          <div v-if="template && networks.length > 1" class="flex flex-col gap-1.5">
+          <div v-if="template && mode === 'new' && networks.length > 1" class="flex flex-col gap-1.5">
             <Label for="open-network">Network</Label>
             <Select v-model="networkId">
               <SelectTrigger id="open-network" class="w-full"><SelectValue /></SelectTrigger>
@@ -136,7 +191,8 @@ async function open() {
           <Button variant="outline" as-child><RouterLink to="/">Cancel</RouterLink></Button>
           <Button :disabled="loading || busy || !!problem" autofocus @click="open">
             <Spinner v-if="busy" />
-            <Rocket v-else />
+            <Rocket v-else-if="mode === 'new'" />
+            <ExternalLink v-else />
             Open
           </Button>
         </CardFooter>

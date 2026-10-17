@@ -3,8 +3,8 @@
 The extension adds **Open in Quicksand** to the right-click menu of links in
 Chrome (and other Chromium browsers, such as Edge and Brave) and Firefox. It
 opens the link in a new VM of an [app template](app-templates.md) that opens
-links, such as Chrome or Firefox in a throwaway VM, so the page never runs on
-your own computer.
+links, such as Chrome or Firefox in a throwaway VM, or in a new tab of one
+you already have running, so the page never runs on your own computer.
 
 ## Installing
 
@@ -52,9 +52,11 @@ https://quicksand.example/open?template=chrome&url=https%3A%2F%2Fexample.com%2F&
 
 That page runs as you, in your normal Quicksand session; if you aren't
 signed in, Quicksand has you sign in first and then carries on. It shows the
-link, the template and the network (which you can change), and deploys when
-you click **Open** (or press Enter). Then it shows the new VM's console,
-which follows the deployment and connects when the VM is up. It asks first
+link and, by default, deploys a **New VM** of the template on the network
+shown (which you can change); choose **Existing VM** to open it in a new tab
+of one of your running VMs that open links instead. Nothing happens until
+you click **Open** (or press Enter). Then it shows the VM's console, which
+for a new VM follows the deployment and connects when it's up. It asks first
 because any website could send you to that page, and shouldn't be able to
 deploy VMs as you.
 

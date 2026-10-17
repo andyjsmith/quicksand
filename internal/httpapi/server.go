@@ -99,6 +99,7 @@ func New(d Deps) *Server {
 	s.mux.Handle("POST /api/vms/{id}/display", user(use(s.handleDisplay)))
 	s.mux.Handle("GET /api/vms/{id}/clipboard", user(use(s.handleGetClipboard)))
 	s.mux.Handle("PUT /api/vms/{id}/clipboard", user(use(s.handleSetClipboard)))
+	s.mux.Handle("POST /api/vms/{id}/open", user(use(audit("vm.open", s.handleOpenURL))))
 	s.mux.Handle("POST /api/vms/{id}/relaunch", user(use(audit("vm.relaunch", s.handleRelaunch))))
 	s.mux.Handle("POST /api/vms/{id}/extend", user(audit("vm.extend", s.handleExtend)))
 	s.mux.Handle("POST /api/vms/{id}/snapshot", user(audit("vm.snapshot", s.handleSnapshot)))

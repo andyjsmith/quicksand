@@ -384,6 +384,7 @@ export const api = {
   /** Pushes back a VM's expiry by the configured extension. */
   extend: (id: string) => request<VM>('POST', `${vmPath(id)}/extend`),
   relaunch: (id: string) => request<void>('POST', `${vmPath(id)}/relaunch`),
+  openURL: (id: string, url: string) => request<void>('POST', `${vmPath(id)}/open`, { url }),
   power: (id: string, action: PowerAction) => request<void>('POST', `${vmPath(id)}/power`, { action }),
   exec: (id: string, req: ExecRequest) => request<ExecResult>('POST', `${vmPath(id)}/exec`, req),
   createConsole: (id: string, protocol: ConsoleProtocol) =>

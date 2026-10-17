@@ -69,9 +69,18 @@ func (s *Service) launchView(vm store.VM, agent *AgentView) *LaunchView {
 	return v
 }
 
-// syncLaunch tells a VM's agent what to launch (and the URL to open, if
-// any) when what it reports differs. It reports whether the agent answered.
-func (s *Service) syncLaunch(ctx context.Context, id string, force bool) (bool, error) {
+// launchAsk is what to ask of a VM's agent besides keeping its app in line
+// with the template: to start the app if it isn't running, or to open a URL
+// in it.
+type launchAsk struct {
+	start bool
+	open  string
+}
+
+// syncLaunch tells a VM's agent what to launch (and the URL it was deployed
+// to open, if any) when what it reports differs, or when ask asks for more.
+// It reports whether the agent answered.
+func (s *Service) syncLaunch(ctx context.Context, id string, ask launchAsk) (bool, error) {
 	// One at a time per VM, so a URL to open is only sent once.
 	s.mu.Lock()
 	lock := s.launchLocks[id]
@@ -102,15 +111,18 @@ func (s *Service) syncLaunch(ctx context.Context, id string, force bool) (bool, 
 	// A URL stays pending until the agent has it, unless the template no
 	// longer opens URLs.
 	pendingURL := vm.OpenURL != "" && len(want.OpenURL) > 0
-	if have.Equal(want) && !pendingURL && !force {
+	if have.Equal(want) && !pendingURL && ask == (launchAsk{}) {
 		if vm.OpenURL != "" {
 			s.store.ClearVMOpenURL(ctx, vm.ID, vm.OpenURL)
 		}
 		return true, nil
 	}
-	req := agentproto.LaunchRequest{LaunchSettings: want, Start: force}
+	req := agentproto.LaunchRequest{LaunchSettings: want, Start: ask.start}
 	if pendingURL {
-		req.Open = []string{vm.OpenURL}
+		req.Open = append(req.Open, vm.OpenURL)
+	}
+	if ask.open != "" {
+		req.Open = append(req.Open, ask.open)
 	}
 	pctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 	st, err := s.agents.SetLaunch(pctx, vm.AgentIP, req)
@@ -157,7 +169,7 @@ func (s *Service) syncLaunchAtBoot(id string) {
 	ctx, cancel := context.WithTimeout(context.Background(), launchBootAttempts*(agentProbeTimeout+3*time.Second))
 	defer cancel()
 	for i := 0; i < launchBootAttempts; i++ {
-		if answered, _ := s.syncLaunch(ctx, id, false); answered || !sleepCtx(ctx, 3*time.Second) {
+		if answered, _ := s.syncLaunch(ctx, id, launchAsk{}); answered || !sleepCtx(ctx, 3*time.Second) {
 			return
 		}
 	}
@@ -172,9 +184,28 @@ func (s *Service) Relaunch(ctx context.Context, vm store.VM) error {
 	if _, err := s.GuestAgent(vm); err != nil {
 		return err
 	}
-	answered, err := s.syncLaunch(ctx, vm.ID, true)
+	answered, err := s.syncLaunch(ctx, vm.ID, launchAsk{start: true})
 	if err == nil && !answered {
 		err = errors.New("the agent isn't answering")
+	}
+	return err
+}
+
+// OpenURL opens a URL in a running VM's app, for templates that open URLs
+// (in a new tab, for browsers).
+func (s *Service) OpenURL(ctx context.Context, vm store.VM, url string) error {
+	if t, ok := s.cfg.Template(vm.TemplateID); !ok || !t.OpensURLs() {
+		return fmt.Errorf("%w: this VM's template doesn't open links", ErrBadRequest)
+	}
+	if err := agentproto.CheckOpenURL(url); err != nil {
+		return fmt.Errorf("%w: %v", ErrBadRequest, err)
+	}
+	if _, err := s.GuestAgent(vm); err != nil {
+		return err
+	}
+	answered, err := s.syncLaunch(ctx, vm.ID, launchAsk{open: url})
+	if err == nil && !answered {
+		err = errors.New("the agent isn't answering; is the VM running?")
 	}
 	return err
 }
@@ -204,7 +235,7 @@ func (s *Service) syncLaunches(ctx context.Context) {
 		if vm.State != store.VMReady || vm.AgentIP == "" {
 			continue
 		}
-		wg.Go(func() { s.syncLaunch(ctx, vm.ID, false) })
+		wg.Go(func() { s.syncLaunch(ctx, vm.ID, launchAsk{}) })
 	}
 	wg.Wait()
 }

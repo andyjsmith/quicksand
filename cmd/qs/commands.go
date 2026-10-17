@@ -618,6 +618,17 @@ func cmdPower(action string, cmd *cli.Command) error {
 	return nil
 }
 
+func cmdOpen(ctx context.Context, cmd *cli.Command) error {
+	if cmd.NArg() != 2 {
+		return errors.New("usage: qs open <vm> <url>")
+	}
+	c, v, err := vmArg(cmd.Args().Slice()[:1], "qs open <vm> <url>")
+	if err != nil {
+		return err
+	}
+	return c.do("POST", "/api/vms/"+url.PathEscape(v.ID)+"/open", map[string]string{"url": cmd.Args().Get(1)}, nil)
+}
+
 func cmdRelaunch(ctx context.Context, cmd *cli.Command) error {
 	c, v, err := vmArg(cmd.Args().Slice(), "qs relaunch <vm>")
 	if err != nil {

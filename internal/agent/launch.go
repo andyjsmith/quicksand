@@ -20,10 +20,17 @@ import (
 // The launcher keeps the app the server asked for (its LaunchSettings)
 // running in the guest's desktop session, as the signed-in user: it waits
 // for someone to sign in, starts the app, and starts it again when it exits
-// (with Restart) or when someone signs in afresh.
+// (with Restart) or when someone signs in afresh. It hears about sign-ins
+// from the session manager where it can (see watchSessions), and checks
+// every launchCheckInterval as well.
 
 const (
-	launchCheckInterval = 3 * time.Second
+	launchCheckInterval = 10 * time.Second
+	// After a session change, the desktop may take a moment to be usable
+	// (its processes to start), so it's checked every launchHurryInterval
+	// for launchHurryFor.
+	launchHurryInterval = 250 * time.Millisecond
+	launchHurryFor      = 10 * time.Second
 	// launchSteadyRun is how long the app must run for its restart delay to
 	// start again from the shortest.
 	launchSteadyRun = time.Minute
@@ -41,8 +48,10 @@ type desktop interface {
 type launcher struct {
 	// path is where the settings are saved, empty to not save them.
 	path string
-	// findDesktop finds the session apps start in.
+	// findDesktop finds the session apps start in; watch, if set, calls
+	// changed whenever sessions may have changed, until ctx ends.
 	findDesktop func(ctx context.Context) (desktop, error)
+	watch       func(ctx context.Context, changed func())
 	wake        chan struct{}
 
 	mu   sync.Mutex
@@ -60,10 +69,12 @@ type launcher struct {
 	failures int
 	retryAt  time.Time
 	err      string
+	// hurryUntil is until when to check often, after a session change.
+	hurryUntil time.Time
 }
 
 func newLauncher(path string) *launcher {
-	l := &launcher{path: path, findDesktop: findDesktop, wake: make(chan struct{}, 1)}
+	l := &launcher{path: path, findDesktop: findDesktop, watch: watchSessions, wake: make(chan struct{}, 1)}
 	if path == "" {
 		return l
 	}
@@ -142,8 +153,19 @@ func (l *launcher) poke() {
 	}
 }
 
+// sessionsChanged checks right away, and often for a little while.
+func (l *launcher) sessionsChanged() {
+	l.mu.Lock()
+	l.hurryUntil = time.Now().Add(launchHurryFor)
+	l.mu.Unlock()
+	l.poke()
+}
+
 // run keeps the app going until ctx ends, then stops it.
 func (l *launcher) run(ctx context.Context) {
+	if l.watch != nil {
+		go l.watch(ctx, l.sessionsChanged)
+	}
 	for {
 		l.step(ctx)
 		select {
@@ -153,9 +175,20 @@ func (l *launcher) run(ctx context.Context) {
 			l.mu.Unlock()
 			return
 		case <-l.wake:
-		case <-time.After(launchCheckInterval):
+		case <-time.After(l.interval()):
 		}
 	}
+}
+
+// interval is how long to wait before checking again: not long while
+// waiting for a desktop that's just appearing.
+func (l *launcher) interval() time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.app == nil && len(l.want.Command) > 0 && time.Now().Before(l.hurryUntil) {
+		return launchHurryInterval
+	}
+	return launchCheckInterval
 }
 
 func (l *launcher) step(ctx context.Context) {

@@ -100,6 +100,10 @@ func newApp() *cli.Command {
 				Action: cmdExtend, ShellComplete: completeArgs(nil, argVM),
 			},
 			{
+				Name: "open", Usage: "open a link in a running VM's app, for templates that open links", ArgsUsage: "<vm> <url>",
+				Category: catMachines, Action: cmdOpen, ShellComplete: completeArgs(nil, argVM),
+			},
+			{
 				Name: "relaunch", Usage: "start a VM's app again, for templates that launch one", ArgsUsage: "<vm>", Category: catMachines,
 				Action: cmdRelaunch, ShellComplete: completeArgs(nil, argVM),
 			},

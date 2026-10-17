@@ -14,3 +14,5 @@ func findDesktop(ctx context.Context) (desktop, error) {
 }
 
 func terminate(cmd *exec.Cmd) { cmd.Process.Kill() }
+
+func watchSessions(ctx context.Context, changed func()) {}
