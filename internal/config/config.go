@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"os"
 	"regexp"
 	"slices"
@@ -46,6 +47,48 @@ type Config struct {
 	// Links enables link networks: private networks users join their VMs
 	// into. Without it, VMs can't be linked.
 	Links *Links `json:"links,omitempty"`
+	// OIDC enables single sign-on with an OpenID Connect provider such as
+	// Keycloak. Without it, users sign in with passwords only.
+	OIDC *OIDC `json:"oidc,omitempty"`
+}
+
+// OIDC configures single sign-on. Users are created on their first sign-in
+// and recognized afterwards by the provider's subject ("sub"), so renaming
+// them at the provider renames them here.
+type OIDC struct {
+	// Issuer is the provider's issuer URL, e.g.
+	// "https://keycloak.example/realms/lab".
+	Issuer       string `json:"issuer"`
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"clientSecret"`
+	// RedirectURL is the callback registered with the provider:
+	// "https://<Quicksand's address>/api/auth/oidc/callback".
+	RedirectURL string `json:"redirectURL"`
+	// Name labels the sign-in button (default "Single sign-on").
+	Name string `json:"name"`
+	// Scopes requested besides "openid" (default "profile" and "email").
+	Scopes []string `json:"scopes"`
+	// UsernameClaim is the ID token claim that names users (default
+	// "preferred_username").
+	UsernameClaim string `json:"usernameClaim"`
+	// GroupsClaim is the ID token claim listing the user's groups (default
+	// "groups"). Group names match with or without a leading "/", as
+	// Keycloak sends them with full paths.
+	GroupsClaim string `json:"groupsClaim"`
+	// AdminGroups, if set, makes members of any of these groups
+	// administrators and everyone else not, checked at each sign-in. Without
+	// it, administrators are chosen on the Admin page.
+	AdminGroups []string `json:"adminGroups"`
+	// AllowedGroups, if set, only lets members of these groups (or of
+	// AdminGroups) sign in.
+	AllowedGroups []string `json:"allowedGroups"`
+	// LinkLocalUsers lets a user's first sign-on take over the existing
+	// password user with the same name, instead of being refused. Enable
+	// only if the provider controls usernames (as Keycloak does by default).
+	LinkLocalUsers bool `json:"linkLocalUsers"`
+	// DisablePasswords turns off password sign-in, leaving single sign-on
+	// as the only way in.
+	DisablePasswords bool `json:"disablePasswords"`
 }
 
 // Links configures link networks. Each one is a VLAN on Bridge; each linked
@@ -376,6 +419,34 @@ func (c *Config) validate() error {
 	}
 	if defaults == 0 && len(c.Networks) > 0 {
 		c.Networks[0].Default = true
+	}
+	if c.OIDC != nil {
+		if err := c.OIDC.validate(); err != nil {
+			return fmt.Errorf("oidc: %w", err)
+		}
+	}
+	return nil
+}
+
+func (o *OIDC) validate() error {
+	if o.Issuer == "" || o.ClientID == "" || o.RedirectURL == "" {
+		return errors.New("issuer, clientId and redirectURL are required")
+	}
+	u, err := url.Parse(o.RedirectURL)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return errors.New("redirectURL must be an http(s) URL")
+	}
+	if o.Name == "" {
+		o.Name = "Single sign-on"
+	}
+	if o.Scopes == nil {
+		o.Scopes = []string{"profile", "email"}
+	}
+	if o.UsernameClaim == "" {
+		o.UsernameClaim = "preferred_username"
+	}
+	if o.GroupsClaim == "" {
+		o.GroupsClaim = "groups"
 	}
 	return nil
 }

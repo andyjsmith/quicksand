@@ -6,6 +6,21 @@ export interface User {
   username: string
   isAdmin: boolean
   createdAt: string
+  /** Signs in with single sign-on. */
+  sso: boolean
+  /** Unset for single sign-on users without a password. */
+  hasPassword: boolean
+}
+
+/** How users can sign in. */
+export interface AuthMethods {
+  password: boolean
+  sso: {
+    /** Label of the sign-in button. */
+    name: string
+    /** Single sign-on users' administrator role follows their groups at the provider. */
+    adminFromGroups: boolean
+  } | null
 }
 
 export interface Template {
@@ -276,7 +291,9 @@ const vmPath = (id: string) => `/api/vms/${encodeURIComponent(id)}`
 
 export const api = {
   login: (username: string, password: string) => request<User>('POST', '/api/auth/login', { username, password }),
-  logout: () => request<void>('POST', '/api/auth/logout'),
+  /** Signs out; for single sign-on, returns where to sign out at the provider too. */
+  logout: () => request<{ redirect: string } | undefined>('POST', '/api/auth/logout'),
+  authMethods: () => request<AuthMethods>('GET', '/api/auth/methods'),
   me: () => request<User>('GET', '/api/auth/me'),
   changePassword: (current: string, next: string) =>
     request<void>('POST', '/api/auth/password', { current, new: next }),

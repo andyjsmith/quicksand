@@ -69,7 +69,7 @@ func CheckPassword(hash, password string) bool {
 func CreateUser(ctx context.Context, s *store.Store, username, password string, admin bool) (store.User, error) {
 	username = strings.TrimSpace(username)
 	if !ValidUsername(username) {
-		return store.User{}, errors.New("usernames are 1-64 letters, digits, '.', '_' or '-'")
+		return store.User{}, errors.New("usernames are 1-64 letters, digits, '.', '_', '-', '@' or '+'")
 	}
 	if err := ValidatePassword(password); err != nil {
 		return store.User{}, err
@@ -81,12 +81,14 @@ func CreateUser(ctx context.Context, s *store.Store, username, password string, 
 	return s.CreateUser(ctx, username, hash, admin)
 }
 
+// ValidUsername allows email addresses, which single sign-on providers may
+// use as usernames.
 func ValidUsername(name string) bool {
 	if len(name) < 1 || len(name) > 64 {
 		return false
 	}
 	for _, c := range name {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("._-", c)) {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("._-@+", c)) {
 			return false
 		}
 	}
@@ -126,16 +128,19 @@ func (s *Sessions) Login(w http.ResponseWriter, r *http.Request, username, passw
 	if !CheckPassword(hash, password) {
 		return store.User{}, ErrInvalidCredentials
 	}
+	return u, s.Start(w, r, u.ID, "")
+}
 
-	token := make([]byte, 32)
-	rand.Read(token)
-	expires := time.Now().Add(SessionTTL)
-	if err := s.store.CreateSession(r.Context(), tokenHash(token), u.ID, expires); err != nil {
-		return store.User{}, err
+// Start signs a user in with a new session cookie. idToken is the
+// provider's ID token for single sign-on sessions.
+func (s *Sessions) Start(w http.ResponseWriter, r *http.Request, userID int64, idToken string) error {
+	value, expires, err := s.Create(r.Context(), userID, idToken)
+	if err != nil {
+		return err
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieName,
-		Value:    base64.RawURLEncoding.EncodeToString(token),
+		Value:    value,
 		Path:     "/",
 		Expires:  expires,
 		HttpOnly: true,
@@ -144,20 +149,34 @@ func (s *Sessions) Login(w http.ResponseWriter, r *http.Request, username, passw
 		// with JSON-only APIs guards against CSRF.
 		SameSite: http.SameSiteStrictMode,
 	})
-	return u, nil
+	return nil
 }
 
-func (s *Sessions) Logout(w http.ResponseWriter, r *http.Request) error {
+// Create stores a new session and returns its cookie value, for clients
+// such as qs that keep the cookie themselves.
+func (s *Sessions) Create(ctx context.Context, userID int64, idToken string) (string, time.Time, error) {
+	token := make([]byte, 32)
+	rand.Read(token)
+	expires := time.Now().Add(SessionTTL)
+	if err := s.store.CreateSession(ctx, tokenHash(token), userID, expires, idToken); err != nil {
+		return "", time.Time{}, err
+	}
+	return base64.RawURLEncoding.EncodeToString(token), expires, nil
+}
+
+// Logout ends the request's session and returns its ID token, if it was a
+// single sign-on session.
+func (s *Sessions) Logout(w http.ResponseWriter, r *http.Request) (idToken string, err error) {
 	if token, ok := cookieToken(r); ok {
-		if err := s.store.DeleteSession(r.Context(), tokenHash(token)); err != nil {
-			return err
+		if idToken, err = s.store.DeleteSession(r.Context(), tokenHash(token)); err != nil {
+			return "", err
 		}
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: CookieName, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteStrictMode,
 	})
-	return nil
+	return idToken, nil
 }
 
 // User returns the user of the request's session, if any.

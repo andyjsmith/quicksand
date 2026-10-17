@@ -29,6 +29,7 @@ const usage = `Usage:
   quicksand user add [-config path] [-admin] <username>
   quicksand user passwd [-config path] <username>
   quicksand user delete [-config path] <username>
+  quicksand user admin [-config path] [-revoke] <username>
   quicksand user list [-config path]
   quicksand agent keygen
   quicksand agent pubkey [-config path]
@@ -106,6 +107,16 @@ func serve(args []string) error {
 		}
 		agents, agentPublicKey = client, agentproto.FormatPublicKey(pub)
 	}
+	var sso *auth.SSO
+	if cfg.OIDC != nil {
+		sso = auth.NewSSO(cfg.OIDC, db)
+		// Discovered now to report problems early; sign-ins retry it.
+		go func() {
+			if _, err := sso.Discover(); err != nil {
+				slog.Warn("single sign-on", "err", err)
+			}
+		}()
+	}
 	hub := vms.NewHub()
 	service := vms.NewService(cfg, client, db, hub, agents)
 	if err := service.Recover(context.Background()); err != nil {
@@ -123,7 +134,7 @@ func serve(args []string) error {
 	srv := &http.Server{
 		Addr: cfg.Listen,
 		Handler: httpapi.New(httpapi.Deps{
-			Config: cfg, PVE: client, Store: db, Sessions: auth.NewSessions(db, cfg.SecureCookies),
+			Config: cfg, PVE: client, Store: db, Sessions: auth.NewSessions(db, cfg.SecureCookies), SSO: sso,
 			VMs: service, Hub: hub, Static: static, AgentPublicKey: agentPublicKey,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -179,6 +190,7 @@ func userCommand(args []string) error {
 	fs := flag.NewFlagSet("user "+sub, flag.ExitOnError)
 	configPath := fs.String("config", defaultConfig(), "path to the configuration file")
 	admin := fs.Bool("admin", false, "make the user an administrator")
+	revoke := fs.Bool("revoke", false, "with admin: remove the administrator role")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	fs.Parse(args)
 
@@ -200,11 +212,14 @@ func userCommand(args []string) error {
 			return err
 		}
 		for _, u := range users {
-			role := "user"
+			role, sign := "user", "password"
 			if u.IsAdmin {
 				role = "admin"
 			}
-			fmt.Printf("%-24s %-6s created %s\n", u.Username, role, u.CreatedAt.Format(time.DateOnly))
+			if u.SSO {
+				sign = "sso"
+			}
+			fmt.Printf("%-24s %-6s %-8s created %s\n", u.Username, role, sign, u.CreatedAt.Format(time.DateOnly))
 		}
 		return nil
 	case "delete":
@@ -222,6 +237,27 @@ func userCommand(args []string) error {
 			return err
 		}
 		fmt.Printf("Deleted user %s.\n", u.Username)
+		return nil
+	case "admin":
+		if fs.NArg() != 1 {
+			fs.Usage()
+			return errors.New("expected one username")
+		}
+		u, _, err := db.UserCredentials(ctx, fs.Arg(0))
+		if err != nil {
+			return fmt.Errorf("user %q: %w", fs.Arg(0), err)
+		}
+		if err := db.SetAdmin(ctx, u.ID, !*revoke); err != nil {
+			return err
+		}
+		if *revoke {
+			fmt.Printf("%s is no longer an administrator.\n", u.Username)
+		} else {
+			fmt.Printf("%s is now an administrator.\n", u.Username)
+		}
+		if u.SSO && cfg.OIDC != nil && len(cfg.OIDC.AdminGroups) > 0 {
+			fmt.Println("Their groups at the identity provider decide this again at their next sign-in (oidc.adminGroups).")
+		}
 		return nil
 	case "add", "passwd":
 		if fs.NArg() != 1 {

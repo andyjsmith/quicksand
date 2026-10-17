@@ -35,14 +35,14 @@ func TestUsersAndSessions(t *testing.T) {
 	}
 
 	token := []byte("token-hash")
-	if err := s.CreateSession(ctx, token, u.ID, time.Now().Add(time.Hour)); err != nil {
+	if err := s.CreateSession(ctx, token, u.ID, time.Now().Add(time.Hour), ""); err != nil {
 		t.Fatal(err)
 	}
 	if su, err := s.SessionUser(ctx, token); err != nil || su.ID != u.ID {
 		t.Fatalf("SessionUser = %+v, %v", su, err)
 	}
 	expired := []byte("expired")
-	if err := s.CreateSession(ctx, expired, u.ID, time.Now().Add(-time.Second)); err != nil {
+	if err := s.CreateSession(ctx, expired, u.ID, time.Now().Add(-time.Second), ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.SessionUser(ctx, expired); !errors.Is(err, ErrNotFound) {

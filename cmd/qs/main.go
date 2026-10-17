@@ -10,7 +10,9 @@ import (
 const usage = `Usage: qs <command> [options]
 
 Account:
-  login [-fingerprint SHA256] <server URL>   sign in (asks for username and password)
+  login [-password] [-fingerprint SHA256] <server URL>
+                                             sign in: in a browser with single sign-on, if the
+                                             server has it (unless -password), else with a password
   logout                                     sign out and forget the session
   whoami                                     show who you are signed in as
 

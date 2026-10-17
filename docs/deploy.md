@@ -108,6 +108,9 @@ sudo -u quicksand quicksand user add -config /etc/quicksand/config.json -admin <
 ```
 
 Further users are managed on the Admin page (or with `quicksand user`).
+To sign users in through Keycloak or another OpenID Connect provider,
+alongside passwords or instead of them, see
+[authentication.md](authentication.md).
 
 ## Agent key
 

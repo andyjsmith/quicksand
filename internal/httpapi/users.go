@@ -10,12 +10,18 @@ import (
 	"quicksand/internal/store"
 )
 
+var errPasswordsDisabled = errors.New("password sign-in is turned off; use single sign-on")
+
 type credentials struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.passwordsEnabled() {
+		writeError(w, http.StatusForbidden, errPasswordsDisabled)
+		return
+	}
 	var c credentials
 	if !decodeJSON(w, r, &c) {
 		return
@@ -32,10 +38,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, u)
 }
 
+// handleLogout ends the session. For single sign-on sessions it returns
+// where to send the browser to sign out at the provider too.
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if err := s.sessions.Logout(w, r); err != nil {
+	idToken, err := s.sessions.Logout(w, r)
+	if err != nil {
 		writeServiceError(w, err)
 		return
+	}
+	if s.sso != nil && idToken != "" {
+		if u := s.sso.LogoutURL(idToken, s.postLogoutURL()); u != "" {
+			writeJSON(w, http.StatusOK, map[string]string{"redirect": u})
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -53,6 +68,14 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := auth.FromContext(r.Context())
+	if !s.passwordsEnabled() {
+		writeError(w, http.StatusForbidden, errPasswordsDisabled)
+		return
+	}
+	if !u.HasPassword {
+		writeError(w, http.StatusBadRequest, errors.New("you sign in with single sign-on and have no password"))
+		return
+	}
 	_, hash, err := s.store.UserCredentials(r.Context(), u.Username)
 	if err != nil {
 		writeServiceError(w, err)
@@ -91,6 +114,10 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	if !s.passwordsEnabled() {
+		writeError(w, http.StatusBadRequest, errors.New("password sign-in is turned off; users are added when they first sign in"))
+		return
+	}
 	u, err := auth.CreateUser(r.Context(), s.store, req.Username, req.Password, req.IsAdmin)
 	if errors.Is(err, store.ErrConflict) {
 		writeError(w, http.StatusConflict, errors.New("that username is taken"))
@@ -113,6 +140,19 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		IsAdmin  *bool   `json:"isAdmin"`
 	}
 	if !decodeJSON(w, r, &req) {
+		return
+	}
+	target, err := s.store.User(r.Context(), id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if req.IsAdmin != nil && target.SSO && s.sso != nil && s.sso.AdminFromGroups() {
+		writeError(w, http.StatusBadRequest, errors.New("single sign-on users' administrator role follows their groups at the identity provider"))
+		return
+	}
+	if req.Password != nil && !s.passwordsEnabled() {
+		writeError(w, http.StatusBadRequest, errPasswordsDisabled)
 		return
 	}
 	if req.IsAdmin != nil {

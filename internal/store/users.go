@@ -13,14 +13,19 @@ type User struct {
 	Username  string    `json:"username"`
 	IsAdmin   bool      `json:"isAdmin"`
 	CreatedAt time.Time `json:"createdAt"`
+	// SSO is set for users who sign in with single sign-on.
+	SSO bool `json:"sso"`
+	// HasPassword is unset for single sign-on users without a password.
+	HasPassword bool `json:"hasPassword"`
 }
 
-const userColumns = `id, username, is_admin, created_at`
+const userColumns = `id, username, is_admin, created_at, oidc_subject IS NOT NULL, password_hash != ''`
 
-func scanUser(row interface{ Scan(...any) error }) (User, error) {
+// scanUser scans userColumns, then extra.
+func scanUser(row interface{ Scan(...any) error }, extra ...any) (User, error) {
 	var u User
 	var created int64
-	err := row.Scan(&u.ID, &u.Username, &u.IsAdmin, &created)
+	err := row.Scan(append([]any{&u.ID, &u.Username, &u.IsAdmin, &created, &u.SSO, &u.HasPassword}, extra...)...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
@@ -46,17 +51,46 @@ func (s *Store) User(ctx context.Context, id int64) (User, error) {
 
 // UserCredentials returns a user and their password hash for logging in.
 func (s *Store) UserCredentials(ctx context.Context, username string) (User, string, error) {
-	var u User
 	var hash string
-	var created int64
-	err := s.db.QueryRowContext(ctx,
+	u, err := scanUser(s.db.QueryRowContext(ctx,
 		`SELECT `+userColumns+`, password_hash FROM users WHERE username = ?`, username,
-	).Scan(&u.ID, &u.Username, &u.IsAdmin, &created, &hash)
-	if errors.Is(err, sql.ErrNoRows) {
-		return User{}, "", ErrNotFound
-	}
-	u.CreatedAt = fromUnix(created)
+	), &hash)
 	return u, hash, err
+}
+
+// UserBySubject returns the single sign-on user with an OIDC subject.
+func (s *Store) UserBySubject(ctx context.Context, subject string) (User, error) {
+	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE oidc_subject = ?`, subject))
+}
+
+// CreateSSOUser stores a new single sign-on user, without a password.
+func (s *Store) CreateSSOUser(ctx context.Context, username, subject string, admin bool) (User, error) {
+	u, err := scanUser(s.db.QueryRowContext(ctx,
+		`INSERT INTO users (username, password_hash, is_admin, created_at, oidc_subject) VALUES (?, '', ?, ?, ?)
+		 RETURNING `+userColumns,
+		username, admin, unix(time.Now()), subject))
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return User{}, ErrConflict
+	}
+	return u, err
+}
+
+// LinkSubject makes an existing user a single sign-on user.
+func (s *Store) LinkSubject(ctx context.Context, id int64, subject string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET oidc_subject = ? WHERE id = ?`, subject, id)
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return ErrConflict
+	}
+	return expectRow(res, err)
+}
+
+// SetUsername renames a user; ErrConflict if the name is taken.
+func (s *Store) SetUsername(ctx context.Context, id int64, username string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET username = ? WHERE id = ?`, username, id)
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return ErrConflict
+	}
+	return expectRow(res, err)
 }
 
 func (s *Store) Users(ctx context.Context) ([]User, error) {

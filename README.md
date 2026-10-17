@@ -29,6 +29,9 @@ Proxmox account (or your attention) to get one.
   shouldn't touch the local network.
 - Expiry with optional extensions, and quotas per user, per template and overall.
 - An admin page for users and everyone's machines.
+- Passwords, single sign-on through Keycloak or another OpenID Connect
+  provider, or both. With SSO, users are created on first sign-in and a group
+  can make them administrators ([docs/authentication.md](docs/authentication.md)).
 
 **With the guest agent** (optional, but most of the good stuff needs it)
 
@@ -99,7 +102,9 @@ build. In short:
    sudo -u quicksand quicksand user add -admin yourname
    ```
 
-   After that, users are managed from the Admin page.
+   After that, users are managed from the Admin page. To use single sign-on
+   (e.g. Keycloak) as well or instead, see
+   [docs/authentication.md](docs/authentication.md).
 5. **Install the agent in your templates** (optional): on Linux, install the
    `quicksand-agent` .deb or .rpm package. Otherwise, use the binary from a
    release or `./scripts/build-agent.sh`, and run

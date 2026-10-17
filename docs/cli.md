@@ -12,7 +12,11 @@ packages for Linux), or build it for common platforms with
 qs login https://quicksand.example
 ```
 
-`qs` asks for your username and password and saves the session in
+If the server has single sign-on, `qs` opens your browser to sign in there
+and receives the session on a temporary `127.0.0.1` port; the browser must
+run on the same machine as `qs`. Otherwise, or with `-password`, `qs` asks
+for your username and password. See
+[authentication.md](authentication.md#the-command-line-1). Either way, it saves the session in
 `~/.config/quicksand/cli.json` (`%AppData%\quicksand\cli.json` on Windows),
 readable only by you. If the server's certificate isn't trusted by your
 system, as with the self-signed one the installer creates, `qs` shows its
@@ -20,7 +24,8 @@ SHA-256 fingerprint and asks whether to trust it; the answer is pinned, so a
 replaced certificate is refused until you sign in again. Pass
 `-fingerprint` to pin a known fingerprint without the prompt.
 
-`qs whoami` shows the account in use; `qs logout` ends the session.
+`qs whoami` shows the account in use; `qs logout` ends the session (a
+single sign-on session at the provider stays signed in).
 
 ## Commands
 

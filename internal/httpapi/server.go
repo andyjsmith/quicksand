@@ -24,6 +24,7 @@ type Server struct {
 	pve      *pve.Client
 	store    *store.Store
 	sessions *auth.Sessions
+	sso      *auth.SSO // nil without single sign-on
 	vms      *vms.Service
 	hub      *vms.Hub
 	consoles *console.Manager
@@ -38,8 +39,10 @@ type Deps struct {
 	PVE      *pve.Client
 	Store    *store.Store
 	Sessions *auth.Sessions
-	VMs      *vms.Service
-	Hub      *vms.Hub
+	// SSO, if non-nil, signs users in with an OpenID Connect provider.
+	SSO *auth.SSO
+	VMs *vms.Service
+	Hub *vms.Hub
 	// Static, if non-nil, is the built web client served for non-API paths.
 	Static fs.FS
 	// AgentPublicKey is the key agents must trust; empty without an agent.
@@ -48,7 +51,7 @@ type Deps struct {
 
 func New(d Deps) *Server {
 	s := &Server{
-		cfg: d.Config, pve: d.PVE, store: d.Store, sessions: d.Sessions, vms: d.VMs, hub: d.Hub,
+		cfg: d.Config, pve: d.PVE, store: d.Store, sessions: d.Sessions, sso: d.SSO, vms: d.VMs, hub: d.Hub,
 		agentPublicKey: d.AgentPublicKey,
 		// Proxmox console tickets are valid for about 30 seconds; new
 		// connections for a session are refused after that.
@@ -58,8 +61,12 @@ func New(d Deps) *Server {
 	user := func(h http.HandlerFunc) http.Handler { return s.requireUser(h) }
 	admin := func(h http.HandlerFunc) http.Handler { return s.requireUser(s.requireAdmin(h)) }
 
+	s.mux.HandleFunc("GET /api/auth/methods", s.handleAuthMethods)
 	s.mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	s.mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	s.mux.HandleFunc("GET /api/auth/oidc/login", s.handleSSOLogin)
+	s.mux.HandleFunc("GET /api/auth/oidc/callback", s.handleSSOCallback)
+	s.mux.HandleFunc("POST /api/auth/cli/token", s.handleCLIToken)
 	s.mux.Handle("GET /api/auth/me", user(s.handleMe))
 	s.mux.Handle("POST /api/auth/password", user(s.handleChangePassword))
 

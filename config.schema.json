@@ -182,6 +182,71 @@
         "nic": { "type": "string", "default": "net2", "description": "VM network device used for links." },
         "model": { "type": "string", "default": "e1000", "description": "NIC model (e1000 needs no guest drivers)." }
       }
+    },
+    "oidc": {
+      "type": "object",
+      "description": "Enables single sign-on with an OpenID Connect provider such as Keycloak, alongside password sign-in (or instead of it, with disablePasswords). Users are created on their first sign-in. See docs/authentication.md.",
+      "additionalProperties": false,
+      "required": ["issuer", "clientId", "redirectURL"],
+      "properties": {
+        "issuer": {
+          "type": "string",
+          "format": "uri",
+          "description": "The provider's issuer URL. For Keycloak, the realm's URL.",
+          "examples": ["https://keycloak.example/realms/lab"]
+        },
+        "clientId": { "type": "string", "description": "The client ID registered with the provider.", "examples": ["quicksand"] },
+        "clientSecret": {
+          "type": "string",
+          "description": "The client's secret (Keycloak: the client's Credentials tab, with client authentication on)."
+        },
+        "redirectURL": {
+          "type": "string",
+          "format": "uri",
+          "description": "The callback URL registered with the provider: Quicksand's address followed by /api/auth/oidc/callback.",
+          "examples": ["https://quicksand.example/api/auth/oidc/callback"]
+        },
+        "name": { "type": "string", "default": "Single sign-on", "description": "Label of the sign-in button.", "examples": ["Keycloak"] },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["profile", "email"],
+          "description": "Scopes requested besides openid."
+        },
+        "usernameClaim": {
+          "type": "string",
+          "default": "preferred_username",
+          "description": "ID token claim users are named by. Usernames are 1-64 letters, digits, '.', '_', '-', '@' or '+'.",
+          "examples": ["preferred_username", "email"]
+        },
+        "groupsClaim": {
+          "type": "string",
+          "default": "groups",
+          "description": "ID token claim listing the user's groups. Keycloak needs a Group Membership mapper to send it."
+        },
+        "adminGroups": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Members of any of these groups are administrators, and other single sign-on users are not, checked at each sign-in. A leading '/' (Keycloak's full group paths) is ignored. Without it, administrators are chosen on the Admin page.",
+          "examples": [["quicksand-admins"]]
+        },
+        "allowedGroups": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "If set, only members of these groups (or of adminGroups) can sign in.",
+          "examples": [["quicksand-users"]]
+        },
+        "linkLocalUsers": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let a user's first single sign-on take over the existing password user of the same name, instead of refusing it. Enable only if the provider controls usernames."
+        },
+        "disablePasswords": {
+          "type": "boolean",
+          "default": false,
+          "description": "Turn off password sign-in, leaving single sign-on as the only way in."
+        }
+      }
     }
   },
   "definitions": {

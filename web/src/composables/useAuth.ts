@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import { api, ApiError, setUnauthorizedHandler, type User } from '@/api'
+import { api, ApiError, setUnauthorizedHandler, type AuthMethods, type User } from '@/api'
 import { router } from '@/router'
 
 // The signed-in user, shared app-wide. undefined until first checked.
@@ -20,6 +20,17 @@ function ensureUser(): Promise<User | null> {
   return checking
 }
 
+let methods: Promise<AuthMethods> | undefined
+
+/** How users can sign in, asked once per page load (passwords only if the server can't say). */
+export function authMethods(): Promise<AuthMethods> {
+  methods ??= api.authMethods().catch(() => {
+    methods = undefined
+    return { password: true, sso: null }
+  })
+  return methods
+}
+
 // Any API call that finds the session gone sends the user to sign in.
 setUnauthorizedHandler(() => {
   user.value = null
@@ -36,10 +47,13 @@ export function useAuth() {
       user.value = await api.login(username, password)
     },
     async logout() {
-      await api.logout().catch(() => {})
+      const out = await api.logout().catch(() => undefined)
       user.value = null
       checking = undefined
-      router.push({ name: 'login' })
+      // Single sign-on sessions end at the provider too, which then returns
+      // to the sign-in page.
+      if (out?.redirect) window.location.assign(out.redirect)
+      else router.push({ name: 'login' })
     },
   }
 }

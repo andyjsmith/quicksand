@@ -34,22 +34,33 @@ func newTestEnv(t *testing.T) *testEnv {
 }
 
 func newTestEnvWithAgents(t *testing.T, agents *agentclient.Client) *testEnv {
+	return newTestEnvFull(t, &config.Config{}, agents)
+}
+
+// newTestEnvWith uses cfg, with a placeholder Proxmox.
+func newTestEnvWith(t *testing.T, cfg *config.Config) *testEnv {
+	return newTestEnvFull(t, cfg, nil)
+}
+
+func newTestEnvFull(t *testing.T, cfg *config.Config, agents *agentclient.Client) *testEnv {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	cfg := &config.Config{
-		PVE: config.PVE{URL: "https://127.0.0.1:1", TokenID: "t", TokenSecret: "s", InsecureSkipVerify: true},
-	}
+	cfg.PVE = config.PVE{URL: "https://127.0.0.1:1", TokenID: "t", TokenSecret: "s", InsecureSkipVerify: true}
 	client, err := pve.New(cfg.PVE)
 	if err != nil {
 		t.Fatal(err)
 	}
+	var sso *auth.SSO
+	if cfg.OIDC != nil {
+		sso = auth.NewSSO(cfg.OIDC, db)
+	}
 	hub := vms.NewHub()
 	srv := httptest.NewServer(New(Deps{
-		Config: cfg, PVE: client, Store: db, Sessions: auth.NewSessions(db, false),
+		Config: cfg, PVE: client, Store: db, Sessions: auth.NewSessions(db, false), SSO: sso,
 		VMs: vms.NewService(cfg, client, db, hub, agents), Hub: hub,
 	}))
 	t.Cleanup(srv.Close)

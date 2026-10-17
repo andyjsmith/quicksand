@@ -78,6 +78,12 @@ var migrations = []string{
 	CREATE UNIQUE INDEX vms_link_ip ON vms(link_ip) WHERE link_ip != '';`,
 	// 5: user firewall settings (JSON; empty: never set).
 	`ALTER TABLE vms ADD COLUMN firewall TEXT NOT NULL DEFAULT '';`,
+	// 6: single sign-on: users' OIDC subjects (password_hash is empty for
+	// users without a password), and the ID token of single sign-on
+	// sessions, to sign out at the provider.
+	`ALTER TABLE users ADD COLUMN oidc_subject TEXT;
+	CREATE UNIQUE INDEX users_oidc_subject ON users(oidc_subject) WHERE oidc_subject IS NOT NULL;
+	ALTER TABLE sessions ADD COLUMN id_token TEXT NOT NULL DEFAULT '';`,
 }
 
 func Open(path string) (*Store, error) {

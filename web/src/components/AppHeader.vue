@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronDown, KeyRound, LogOut, Server, Shield } from '@lucide/vue'
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import { Button } from '@/components/ui/button'
@@ -12,11 +12,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useAuth } from '@/composables/useAuth'
+import { authMethods, useAuth } from '@/composables/useAuth'
 import { resetMachines } from '@/composables/useMachines'
 
 const auth = useAuth()
 const changingPassword = ref(false)
+
+// Single sign-on users have no password to change, unless an admin set one.
+const passwords = ref(false)
+onMounted(async () => (passwords.value = (await authMethods()).password))
+const canChangePassword = computed(() => passwords.value && !!auth.user.value?.hasPassword)
 
 async function logout() {
   resetMachines()
@@ -53,7 +58,7 @@ async function logout() {
             Signed in as {{ auth.user.value?.username }}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem @select="changingPassword = true">
+          <DropdownMenuItem v-if="canChangePassword" @select="changingPassword = true">
             <KeyRound /> Change password
           </DropdownMenuItem>
           <DropdownMenuItem @select="logout"><LogOut /> Sign out</DropdownMenuItem>

@@ -15,7 +15,7 @@ import {
   Users,
 } from '@lucide/vue'
 import { onMounted, ref } from 'vue'
-import { api, errorMessage, type AgentSettings, type User, type VM } from '@/api'
+import { api, errorMessage, type AgentSettings, type AuthMethods, type User, type VM } from '@/api'
 import AppHeader from '@/components/AppHeader.vue'
 import ExpiryBadge from '@/components/ExpiryBadge.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -50,12 +50,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { useAuth } from '@/composables/useAuth'
+import { authMethods, useAuth } from '@/composables/useAuth'
 import { formatMemory, vmStatus } from '@/lib/format'
 
 useTitle('Admin · Quicksand')
 
 const auth = useAuth()
+const methods = ref<AuthMethods>({ password: true, sso: null })
+onMounted(async () => (methods.value = await authMethods()))
+/** Single sign-on users' administrator role follows their groups at the provider. */
+const roleFromGroups = (u: User) => u.sso && !!methods.value.sso?.adminFromGroups
 const users = ref<User[]>([])
 const vms = ref<VM[]>([])
 const error = ref<string>()
@@ -183,9 +187,16 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
         <CardHeader class="flex flex-row items-start justify-between gap-4">
           <div class="flex flex-col gap-1">
             <CardTitle class="flex items-center gap-2"><Users class="size-4" /> Users</CardTitle>
-            <CardDescription>Users only see the machines they deploy.</CardDescription>
+            <CardDescription>
+              Users only see the machines they deploy.
+              <template v-if="methods.sso">
+                Single sign-on users are added when they first sign in{{
+                  methods.sso.adminFromGroups ? ', and their groups decide who is an administrator' : ''
+                }}.
+              </template>
+            </CardDescription>
           </div>
-          <Button @click="openAdd"><UserPlus /> Add user</Button>
+          <Button v-if="methods.password" @click="openAdd"><UserPlus /> Add user</Button>
         </CardHeader>
         <CardContent>
           <div class="overflow-x-auto">
@@ -204,6 +215,7 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
                   <TableCell class="font-medium">
                     {{ u.username }}
                     <span v-if="u.id === auth.user.value?.id" class="text-muted-foreground font-normal">(you)</span>
+                    <Badge v-if="u.sso" variant="outline" class="ml-1" title="Signs in with single sign-on">SSO</Badge>
                   </TableCell>
                   <TableCell>
                     <Badge v-if="u.isAdmin" variant="secondary"><Shield /> Admin</Badge>
@@ -217,13 +229,15 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
                         <Button variant="ghost" size="icon-sm" title="Actions"><EllipsisVertical /></Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" class="w-48">
-                        <DropdownMenuItem @select="openReset(u)"><KeyRound /> Reset password</DropdownMenuItem>
-                        <DropdownMenuItem v-if="!u.isAdmin" @select="setAdmin(u, true)">
+                        <DropdownMenuItem v-if="methods.password" @select="openReset(u)">
+                          <KeyRound /> {{ u.hasPassword ? 'Reset password' : 'Set password' }}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem v-if="!u.isAdmin" :disabled="roleFromGroups(u)" @select="setAdmin(u, true)">
                           <Shield /> Make administrator
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           v-else
-                          :disabled="u.id === auth.user.value?.id"
+                          :disabled="u.id === auth.user.value?.id || roleFromGroups(u)"
                           @select="setAdmin(u, false)"
                         >
                           <ShieldOff /> Remove administrator
@@ -332,9 +346,17 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
     <Dialog v-model:open="dialogOpen">
       <DialogContent class="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>{{ target ? `Reset password for ${target.username}` : 'Add user' }}</DialogTitle>
+          <DialogTitle>
+            {{ !target ? 'Add user' : `${target.hasPassword ? 'Reset' : 'Set'} password for ${target.username}` }}
+          </DialogTitle>
           <DialogDescription>
-            {{ target ? 'They are signed out everywhere.' : 'Share the password with them; they can change it later.' }}
+            {{
+              !target
+                ? 'Share the password with them; they can change it later.'
+                : target.hasPassword
+                  ? 'They are signed out everywhere.'
+                  : 'They can then sign in with this password as well as single sign-on. They are signed out everywhere.'
+            }}
           </DialogDescription>
         </DialogHeader>
         <form id="user-form" class="flex flex-col gap-3" @submit.prevent="submitDialog">
@@ -357,7 +379,9 @@ const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
         </form>
         <DialogFooter>
           <Button variant="outline" @click="dialogOpen = false">Cancel</Button>
-          <Button type="submit" form="user-form" :disabled="busy">{{ target ? 'Reset password' : 'Add user' }}</Button>
+          <Button type="submit" form="user-form" :disabled="busy">
+            {{ !target ? 'Add user' : target.hasPassword ? 'Reset password' : 'Set password' }}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

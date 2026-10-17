@@ -120,9 +120,10 @@ func signedIn() (*client, error) {
 func cmdLogin(args []string) error {
 	fs := flag.NewFlagSet("login", flag.ExitOnError)
 	fingerprint := fs.String("fingerprint", "", "trust a server certificate with this SHA-256 fingerprint")
+	usePassword := fs.Bool("password", false, "sign in with a password even if the server has single sign-on")
 	fs.Parse(args)
 	if fs.NArg() != 1 {
-		return errors.New("usage: qs login [-fingerprint SHA256] <server URL>")
+		return errors.New("usage: qs login [-password] [-fingerprint SHA256] <server URL>")
 	}
 	server := strings.TrimRight(fs.Arg(0), "/")
 	if !strings.Contains(server, "://") {
@@ -140,23 +141,37 @@ func cmdLogin(args []string) error {
 		}
 	}
 
-	fmt.Fprint(os.Stderr, "Username: ")
-	username, err := in.ReadString('\n')
-	if err != nil {
-		return err
-	}
-	password, err := readPassword(in)
-	if err != nil {
-		return err
-	}
 	c := newClient(s)
-	if s.Session, err = c.login(strings.TrimSpace(username), password); err != nil {
+	methods, err := c.authMethods()
+	if err != nil {
 		return err
+	}
+	var username string
+	switch {
+	case methods.SSO != nil && (!*usePassword || !methods.Password):
+		if s.Session, username, err = c.ssoLogin(methods.SSO.Name); err != nil {
+			return err
+		}
+	case methods.Password:
+		fmt.Fprint(os.Stderr, "Username: ")
+		if username, err = in.ReadString('\n'); err != nil {
+			return err
+		}
+		username = strings.TrimSpace(username)
+		password, err := readPassword(in)
+		if err != nil {
+			return err
+		}
+		if s.Session, err = c.login(username, password); err != nil {
+			return err
+		}
+	default:
+		return errors.New("the server offers no way to sign in")
 	}
 	if err := saveSettings(s); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "Signed in to %s as %s.\n", server, strings.TrimSpace(username))
+	fmt.Fprintf(os.Stderr, "Signed in to %s as %s.\n", server, username)
 	return nil
 }
 
