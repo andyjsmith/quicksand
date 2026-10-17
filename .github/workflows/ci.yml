@@ -1,20 +1,16 @@
 # Builds the server (with the web client embedded), the guest agent and the
-# qs CLI on every push and pull request. Pushing a version tag (v1.2.3,
+# qs CLI on every push to any branch. Pull requests from branches in this
+# repository show those runs' results. Pushing a version tag (v1.2.3,
 # v1.2.3-rc.1) also creates a GitHub release for the tag with the binaries.
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
     tags: ["v*"]
-  pull_request:
 
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Tag builds are versioned by the tag; others by git describe.

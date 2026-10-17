@@ -128,7 +128,7 @@ cd web && npm run typecheck
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the tests and builds the
-server, agent and CLI on every push and pull request. To release, tag the
+server, agent and CLI on every push to any branch. To release, tag the
 commit and push the tag:
 
 ```sh
