@@ -289,6 +289,12 @@ Optional `network` fields: `nic` (default `net1`), `model` (default
 the agents' config must match). Mark templates that have the agent with
 `"agent": true`.
 
+Give each Quicksand server its own agent network (or at least its own
+`subnet` on it). Agent addresses are only unique within one server's
+database, so a second server on the same network, such as a development
+copy, hands out addresses already in use, and its requests can reach the
+other server's VMs, which trust the same key if it's shared.
+
 Keep the private key: templates trust its public key, so a new key means
 updating every template. The public key is shown on the Admin page and by
 `quicksand agent pubkey`.

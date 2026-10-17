@@ -72,6 +72,16 @@ func (s *Service) launchView(vm store.VM, agent *AgentView) *LaunchView {
 // syncLaunch tells a VM's agent what to launch (and the URL to open, if
 // any) when what it reports differs. It reports whether the agent answered.
 func (s *Service) syncLaunch(ctx context.Context, id string, force bool) (bool, error) {
+	// One at a time per VM, so a URL to open is only sent once.
+	s.mu.Lock()
+	lock := s.launchLocks[id]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		s.launchLocks[id] = lock
+	}
+	s.mu.Unlock()
+	lock.Lock()
+	defer lock.Unlock()
 	vm, err := s.store.VM(ctx, id)
 	if err != nil || vm.State != store.VMReady || vm.AgentIP == "" || s.agents == nil {
 		return false, err

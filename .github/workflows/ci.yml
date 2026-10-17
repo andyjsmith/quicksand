@@ -1,8 +1,9 @@
 # Builds the server (with the web client embedded), the guest agent and the
-# qs CLI, as binaries and .deb/.rpm packages, on every push to any branch.
+# qs CLI, as binaries and .deb/.rpm packages, and the browser extension, on
+# every push to any branch.
 # Pull requests from branches in this repository show those runs' results.
 # Pushing a version tag (v1.2.3, v1.2.3-rc.1) also creates a GitHub release
-# for the tag with the binaries and packages.
+# for the tag with the binaries, packages and extension.
 name: CI
 
 on:
@@ -115,11 +116,24 @@ jobs:
           path: dist/packages
           retention-days: 7
 
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check scripts
+        run: for f in extension/*.js; do node --check "$f"; done
+      - run: ./scripts/build-extension.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-extension
+          path: dist/extension/*.zip
+          retention-days: 7
+
   # The release notes are the tag's message, if any, and the commits since
   # the previous tag.
   release:
     if: github.ref_type == 'tag'
-    needs: [test, server, agent, cli]
+    needs: [test, server, agent, cli, extension]
     runs-on: ubuntu-latest
     permissions:
       contents: write

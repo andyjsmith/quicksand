@@ -21,6 +21,7 @@ export const router = createRouter({
       component: () => import('@/views/ConsoleView.vue'),
       props: true,
     },
+    { path: '/open', name: 'open', component: () => import('@/views/OpenView.vue') },
     { path: '/tokens', name: 'tokens', component: () => import('@/views/TokensView.vue') },
     { path: '/admin', name: 'admin', component: () => import('@/views/AdminView.vue'), meta: { admin: true } },
     { path: '/:pathMatch(.*)*', redirect: '/' },

@@ -58,8 +58,10 @@ type Service struct {
 	snapshots map[string]*SnapshotInfo
 	// usage tracks how each VM is being used, for suspending idle ones.
 	usage map[string]*usage
-	// launchErrors holds why telling each VM's agent what to launch failed.
+	// launchErrors holds why telling each VM's agent what to launch failed;
+	// launchLocks serialize doing so, per VM.
 	launchErrors map[string]string
+	launchLocks  map[string]*sync.Mutex
 	// linkMu serializes link network changes; linkStates holds whether each
 	// linked VM's agent has set its address.
 	linkMu     sync.Mutex
@@ -90,7 +92,7 @@ type actionState struct {
 func NewService(cfg *config.Config, client *pve.Client, s *store.Store, hub *Hub, agents *agentclient.Client) *Service {
 	return &Service{cfg: cfg, pve: client, store: s, hub: hub, jobs: map[string]*job{}, actions: map[string]actionState{},
 		consoles: map[string]consoleInfo{}, boots: map[string]*bootWatch{}, snapshots: map[string]*SnapshotInfo{},
-		usage: map[string]*usage{}, launchErrors: map[string]string{},
+		usage: map[string]*usage{}, launchErrors: map[string]string{}, launchLocks: map[string]*sync.Mutex{},
 		linkStates: map[string]linkState{},
 		agents:     agents, probes: agentProbes{results: map[string]agentProbe{}}}
 }
@@ -584,6 +586,7 @@ func (s *Service) remove(vm store.VM) {
 	delete(s.linkStates, vm.ID)
 	delete(s.usage, vm.ID)
 	delete(s.launchErrors, vm.ID)
+	delete(s.launchLocks, vm.ID)
 	s.mu.Unlock()
 	s.forgetProbe(vm.ID)
 	slog.Info("vm destroyed", "id", vm.ID, "vmid", vm.VMID)

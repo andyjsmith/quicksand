@@ -85,23 +85,30 @@ the VM's page says the agent is too old: update the agent in the template.
 ## Opening links
 
 "Open in Quicksand" always deploys a new VM; it never opens a link in a VM
-that's already running. Everything an extension needs is in the API, signed
-in with an API token (`Authorization: Bearer qst_...`, created on the
-**API tokens** page):
+that's already running. There are three ways in:
 
-1. `GET /api/templates` lists templates; those with `"opensURLs": true` can
-   open links (`launch` shows the command they run).
-2. `POST /api/vms` with `{"templateId": "chrome", "url": "https://example.com/"}`
-   deploys one. The name is generated, and the CPUs, memory and network are
-   the template's defaults unless given. The response is the new VM, with its
-   `id`.
-3. `GET /api/vms/{id}` (or the `/api/events` stream) follows the deployment
-   until `state` is `ready`. The page is open once `launch.running` is true.
-   The console is at `/console/{id}` in the web client.
+- **The browser extension** adds "Open in Quicksand" to the menu of links.
+  See [extension.md](extension.md).
+- **The `/open` page**, `https://quicksand.example/open?template=chrome&url=<link>`
+  (with the link URL-encoded, and optionally `&network=<ID>` to choose the
+  network to start with), is what the extension uses, and works from
+  anywhere: bookmarklets, other tools. It runs in the user's own Quicksand
+  session (sending them to sign in first if needed), shows the link, the
+  template and the network (which they can change), and deploys when they
+  click **Open**. It then goes to the new
+  VM's console, which shows the deployment and connects when it's up. It
+  asks first because any site could send someone there.
+- **The API**, with an API token (`Authorization: Bearer qst_...`):
+  `GET /api/templates` lists templates, with `"opensURLs": true` on those that
+  can open links; `POST /api/vms` with
+  `{"templateId": "chrome", "url": "https://example.com/"}` deploys one (with
+  a generated name and the template's defaults unless given); and
+  `GET /api/vms/{id}` follows it until `state` is `ready` and
+  `launch.running` is true. From the command line:
+  `qs deploy --url https://example.com/ chrome`.
 
-A template that can't open links, or a URL that isn't `http`/`https`, gets a
-400 with an explanation. From the command line:
-`qs deploy --url https://example.com/ chrome`.
+A template that can't open links, or a URL that isn't `http`/`https`, is
+refused with an explanation.
 
 ## Building the Openbox browser template
 
@@ -164,6 +171,8 @@ The script:
 - **Sets up the session's autostart** (`/etc/xdg/openbox/autostart`):
   `xset s off -dpms` so the screen never blanks, a plain background, and
   `quicksand-follow-display`.
+- **Speeds up booting**: no GRUB menu even after an unclean shutdown, and
+  no snapd. See [Faster startup](#faster-startup).
 
 `quicksand-follow-display` keeps the display the size of the Quicksand
 console. QEMU offers the console's size as the display's preferred mode;
@@ -225,6 +234,68 @@ instance used just for building, deleting its database is enough.)
 
 Finally, point the app templates' `vmid` at it, as in
 [Configuration](#configuration).
+
+### Faster startup
+
+Every app VM boots from scratch, so seconds at boot are seconds of waiting
+for the link to open. Measured on `qs-browser` (Ubuntu 26.04, 4 CPUs, 3 GiB):
+before the changes below, it took about 45 seconds from power-on to Firefox
+starting, 35 of them before Linux even started. After them it takes about 13:
+6 in the firmware and GRUB, then Linux has the user signed in 4.4 seconds
+after it starts and the agent launches the app 2 seconds later. With the 7
+seconds Quicksand takes to clone and start a VM, a link opens about 20
+seconds after clicking **Open**.
+
+**GRUB's menu.** Ubuntu hides GRUB's menu (`GRUB_TIMEOUT=0`), except after a
+boot that didn't finish cleanly: then it shows it for 30 seconds
+(`GRUB_RECORDFAIL_TIMEOUT`). A throwaway VM hits that all the time: force
+stops, resets, a template whose saved GRUB state still says the last boot
+failed. That was the 30 seconds. The setup script turns it off:
+
+```sh
+cat > /etc/default/grub.d/90-quicksand.cfg <<'G'
+GRUB_TIMEOUT=0
+GRUB_TIMEOUT_STYLE=hidden
+GRUB_RECORDFAIL_TIMEOUT=0
+G
+update-grub
+grub-editenv /boot/grub/grubenv unset recordfail
+```
+
+Tested by setting `recordfail` and force-resetting the VM: Linux started
+straight away. (Hold Shift, or Esc on UEFI, during boot to get the menu
+when you need it.)
+
+**snapd.** On the Ubuntu desktop, `snapd.seeded.service` sat on the boot's
+critical path for about a second, and nothing in this template needs snaps
+once Firefox comes from Mozilla's repository. The setup script purges
+snapd, which also frees about 2 GB of disk.
+
+**Finding what else is slow.** In the guest:
+
+```sh
+systemd-analyze                              # kernel, initrd and userspace time
+systemd-analyze critical-chain graphical.target
+systemd-analyze blame | head -20
+journalctl -b -o short-monotonic | grep -E 'session opened|launched app'
+```
+
+The last line shows when LightDM signed the user in and when the agent
+launched the app, in seconds since the kernel started. To see time spent
+before Linux (firmware and GRUB), compare the VM's uptime in Proxmox with
+`/proc/uptime` in the guest right after a cold start.
+
+Other things worth trying, depending on what `blame` shows: disabling
+services an app VM doesn't need (`cups`, `ModemManager`, `bluetooth`,
+`kerneloops`, `whoopsie`), and the `apt-daily` and `unattended-upgrades`
+timers, which compete with the app for CPU early on and are pointless in a
+VM that's thrown away. Giving the template more CPUs also helps the browser
+itself start faster.
+
+**Outside the guest.** Linked clones (the default, without `fullClone`)
+deploy in a few seconds; full clones copy the disk and take much longer.
+Keep the disk first in the boot order and detach the installer ISO from the
+template (`ide2`), so clones don't depend on it.
 
 ### Changing the template later
 

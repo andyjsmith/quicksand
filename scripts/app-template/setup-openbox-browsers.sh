@@ -83,4 +83,19 @@ echo /usr/sbin/lightdm > /etc/X11/default-display-manager
 systemctl disable gdm3 2>/dev/null || systemctl disable gdm || true
 ln -sf /usr/lib/systemd/system/lightdm.service /etc/systemd/system/display-manager.service
 systemctl set-default graphical.target
+
+# Faster boots (see "Faster startup" in docs/app-templates.md). Ubuntu's GRUB
+# shows its menu for 30 seconds after any boot that didn't finish cleanly,
+# which throwaway VMs (hard-stopped, reset, cloned) hit all the time.
+cat > /etc/default/grub.d/90-quicksand.cfg <<'G'
+GRUB_TIMEOUT=0
+GRUB_TIMEOUT_STYLE=hidden
+GRUB_RECORDFAIL_TIMEOUT=0
+G
+update-grub
+grub-editenv /boot/grub/grubenv unset recordfail
+# Nothing here needs snaps any more (Firefox and Chrome are .debs), and
+# snapd sits on the boot's critical path.
+apt-get purge -y snapd
+rm -rf /snap /var/snap /var/lib/snapd "/home/$USER_NAME/snap"
 echo done

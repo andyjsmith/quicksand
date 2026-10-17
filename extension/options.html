@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Open in Quicksand</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <form id="form">
+      <label for="baseURL">Quicksand address</label>
+      <input id="baseURL" type="url" placeholder="https://quicksand.example" required />
+      <label for="template">Template ID</label>
+      <input id="template" type="text" placeholder="chrome" required spellcheck="false" />
+      <p class="hint">
+        The template links open in. It must be one that opens links; template IDs are shown next to their names on
+        Quicksand's dashboard.
+      </p>
+      <label for="network">Network ID <span class="optional">(optional)</span></label>
+      <input id="network" type="text" placeholder="Quicksand's default" spellcheck="false" />
+      <p class="hint">The network chosen to start with; it can be changed before opening each link.</p>
+      <div class="actions">
+        <button type="submit">Save</button>
+        <span id="status" role="status"></span>
+      </div>
+    </form>
+    <script src="options.js"></script>
+  </body>
+</html>
