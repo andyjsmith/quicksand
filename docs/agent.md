@@ -183,7 +183,7 @@ All endpoints require the authenticated TLS connection described above.
   logged in, the endpoints answer 501.
 
 - `PUT /v1/launch` — the app to keep running in the guest's desktop session,
-  as the signed-in user (Linux only, for now):
+  as the signed-in user (Linux and Windows):
   ```json
   { "command": ["firefox"], "openURL": ["firefox", "{url}"], "restart": true,
     "open": ["https://example.com/"], "start": false }

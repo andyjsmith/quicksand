@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -41,8 +41,18 @@ const (
 type desktop interface {
 	// ID changes when someone signs in afresh.
 	ID() string
-	// Command prepares argv to run as the session's user, in the session.
-	Command(argv []string) (*exec.Cmd, error)
+	// Start runs argv as the session's user, in the session, writing its
+	// error output (where there is one) to stderr if that isn't nil.
+	Start(argv []string, stderr io.Writer) (process, error)
+}
+
+// process is an app started in a desktop session.
+type process interface {
+	Pid() int
+	// Wait waits for it to exit, returning an error if it failed.
+	Wait() error
+	// Terminate stops it and what it started.
+	Terminate()
 }
 
 type launcher struct {
@@ -62,7 +72,7 @@ type launcher struct {
 	start   bool
 	// app is the running app, started in session appSession; started is
 	// the session it was last started in.
-	app        *exec.Cmd
+	app        process
 	appSession string
 	started    string
 	// failures counts quick exits in a row, which push retryAt back.
@@ -71,6 +81,13 @@ type launcher struct {
 	err      string
 	// hurryUntil is until when to check often, after a session change.
 	hurryUntil time.Time
+}
+
+// savedLaunch is what the launcher keeps across restarts: its settings, and
+// URLs not opened yet (say, the agent restarted before anyone signed in).
+type savedLaunch struct {
+	agentproto.LaunchSettings
+	Pending []string `json:"pending,omitempty"`
 }
 
 func newLauncher(path string) *launcher {
@@ -82,18 +99,25 @@ func newLauncher(path string) *launcher {
 	if errors.Is(err, os.ErrNotExist) {
 		return l
 	}
-	var want agentproto.LaunchSettings
+	var saved savedLaunch
 	if err == nil {
-		err = json.Unmarshal(b, &want)
+		err = json.Unmarshal(b, &saved)
 	}
 	if err == nil {
-		err = want.Validate()
+		err = saved.Validate()
 	}
 	if err != nil {
 		slog.Warn("ignoring saved launch settings", "path", path, "err", err)
 		return l
 	}
-	l.want = want
+	l.want = saved.LaunchSettings
+	if len(l.want.OpenURL) > 0 {
+		for _, u := range saved.Pending {
+			if agentproto.CheckOpenURL(u) == nil {
+				l.pending = append(l.pending, u)
+			}
+		}
+	}
 	return l
 }
 
@@ -117,26 +141,47 @@ func (l *launcher) set(req agentproto.LaunchRequest) (agentproto.LaunchState, er
 		l.want = req.LaunchSettings
 		l.stopLocked()
 		l.started, l.failures, l.retryAt, l.err = "", 0, time.Time{}, ""
-		if err := l.save(); err != nil {
-			slog.Warn("save launch settings", "err", err)
-		}
+		l.saveLocked()
 	}
-	l.pending = append(l.pending, req.Open...)
+	if len(req.Open) > 0 {
+		l.pending = append(l.pending, req.Open...)
+		l.saveLocked()
+	}
 	l.start = l.start || req.Start
 	l.mu.Unlock()
 	l.poke()
 	return l.state(), nil
 }
 
-func (l *launcher) save() error {
+// saveLocked saves the settings and pending URLs; l.mu must be held.
+func (l *launcher) saveLocked() {
 	if l.path == "" {
-		return nil
+		return
 	}
-	if err := os.MkdirAll(filepath.Dir(l.path), 0o700); err != nil {
-		return err
+	err := os.MkdirAll(filepath.Dir(l.path), 0o700)
+	if err == nil {
+		b, _ := json.Marshal(savedLaunch{LaunchSettings: l.want, Pending: l.pending})
+		err = os.WriteFile(l.path, b, 0o600)
 	}
-	b, _ := json.Marshal(l.want)
-	return os.WriteFile(l.path, b, 0o600)
+	if err != nil {
+		slog.Warn("save launch settings", "err", err)
+	}
+}
+
+// dropPendingLocked forgets the first n pending URLs (all if n < 0), once
+// they're opened; l.mu must be held.
+func (l *launcher) dropPendingLocked(n int) {
+	if len(l.pending) == 0 {
+		return
+	}
+	if n < 0 || n > len(l.pending) {
+		n = len(l.pending)
+	}
+	l.pending = l.pending[n:]
+	if len(l.pending) == 0 {
+		l.pending = nil
+	}
+	l.saveLocked()
 }
 
 // state reports the settings and whether the app runs.
@@ -185,8 +230,14 @@ func (l *launcher) run(ctx context.Context) {
 func (l *launcher) interval() time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.app == nil && len(l.want.Command) > 0 && time.Now().Before(l.hurryUntil) {
-		return launchHurryInterval
+	if l.app == nil && len(l.want.Command) > 0 {
+		if time.Now().Before(l.hurryUntil) {
+			return launchHurryInterval
+		}
+		// Wake up when the app is due to be started again.
+		if wait := time.Until(l.retryAt); wait > 0 && wait < launchCheckInterval {
+			return wait + 10*time.Millisecond
+		}
 	}
 	return launchCheckInterval
 }
@@ -196,11 +247,12 @@ func (l *launcher) step(ctx context.Context) {
 	defer l.mu.Unlock()
 	if len(l.want.Command) == 0 {
 		l.stopLocked()
-		l.pending, l.start, l.err = nil, false, ""
+		l.dropPendingLocked(-1)
+		l.start, l.err = false, ""
 		return
 	}
 	if len(l.want.OpenURL) == 0 {
-		l.pending = nil
+		l.dropPendingLocked(-1)
 	}
 	l.mu.Unlock()
 	fctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -219,7 +271,7 @@ func (l *launcher) step(ctx context.Context) {
 		for _, u := range l.pending {
 			l.openLocked(d, u)
 		}
-		l.pending = nil
+		l.dropPendingLocked(-1)
 		return
 	}
 	again := l.want.Restart || l.start || len(l.pending) > 0
@@ -227,42 +279,38 @@ func (l *launcher) step(ctx context.Context) {
 		return
 	}
 	argv := l.want.Command
-	if len(l.pending) > 0 {
+	opening := len(l.pending) > 0
+	if opening {
 		argv = l.want.OpenURLCommand(l.pending[0])
 	}
-	cmd, err := d.Command(argv)
-	var stderr *tailBuffer
-	if err == nil {
-		stderr = &tailBuffer{}
-		cmd.Stdout, cmd.Stderr = nil, stderr
-		err = cmd.Start()
-	}
+	stderr := &tailBuffer{}
+	app, err := d.Start(argv, stderr)
 	if err != nil {
 		l.err = fmt.Sprintf("couldn't start %s: %v", argv[0], err)
 		l.failedLocked()
 		return
 	}
-	slog.Info("launched app", "argv", argv, "pid", cmd.Process.Pid, "session", d.ID())
-	if len(l.pending) > 0 {
-		l.pending = l.pending[1:]
+	slog.Info("launched app", "argv", argv, "pid", app.Pid(), "session", d.ID())
+	if opening {
+		l.dropPendingLocked(1)
 	}
-	l.app, l.appSession, l.started, l.start, l.err = cmd, d.ID(), d.ID(), false, ""
-	go l.wait(cmd, argv[0], stderr)
+	l.app, l.appSession, l.started, l.start, l.err = app, d.ID(), d.ID(), false, ""
+	go l.wait(app, argv[0], stderr)
 }
 
 // wait notes when the app exits, so it can be started again.
-func (l *launcher) wait(cmd *exec.Cmd, name string, stderr *tailBuffer) {
+func (l *launcher) wait(app process, name string, stderr *tailBuffer) {
 	began := time.Now()
-	err := cmd.Wait()
+	err := app.Wait()
 	l.mu.Lock()
-	if l.app != cmd {
+	if l.app != app {
 		// Stopped on purpose.
 		l.mu.Unlock()
 		return
 	}
 	l.app = nil
 	ran := time.Since(began)
-	slog.Info("app exited", "name", name, "pid", cmd.Process.Pid, "after", ran.Round(time.Second), "err", err)
+	slog.Info("app exited", "name", name, "pid", app.Pid(), "after", ran.Round(time.Second), "err", err)
 	if ran >= launchSteadyRun {
 		l.failures, l.retryAt = 0, time.Now().Add(time.Second)
 	} else {
@@ -286,25 +334,21 @@ func (l *launcher) failedLocked() {
 
 // openLocked hands a URL to the running app.
 func (l *launcher) openLocked(d desktop, u string) {
-	argv := l.want.OpenURLCommand(u)
-	cmd, err := d.Command(argv)
-	if err == nil {
-		err = cmd.Start()
-	}
+	p, err := d.Start(l.want.OpenURLCommand(u), nil)
 	if err != nil {
 		slog.Warn("open URL", "url", u, "err", err)
 		return
 	}
-	slog.Info("opened URL", "url", u, "pid", cmd.Process.Pid)
-	go cmd.Wait()
+	slog.Info("opened URL", "url", u, "pid", p.Pid())
+	go p.Wait()
 }
 
 func (l *launcher) stopLocked() {
 	if l.app == nil {
 		return
 	}
-	slog.Info("stopping app", "pid", l.app.Process.Pid)
-	terminate(l.app)
+	slog.Info("stopping app", "pid", l.app.Pid())
+	l.app.Terminate()
 	l.app = nil
 }
 

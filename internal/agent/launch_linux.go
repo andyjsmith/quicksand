@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -27,13 +28,21 @@ type linuxDesktop struct {
 }
 
 func findDesktop(ctx context.Context) (desktop, error) {
+	d, err := findLinuxDesktop(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+func findLinuxDesktop(ctx context.Context) (linuxDesktop, error) {
 	s, err := activeSession(ctx)
 	if err != nil {
-		return nil, errors.New(strings.TrimPrefix(err.Error(), errDisplayUnsupported.Error()+": "))
+		return linuxDesktop{}, errors.New(strings.TrimPrefix(err.Error(), errDisplayUnsupported.Error()+": "))
 	}
 	env := sessionUserEnv(s.uid)
 	if !slicesHasPrefix(env, "DISPLAY=") && !slicesHasPrefix(env, "WAYLAND_DISPLAY=") {
-		return nil, errors.New("the desktop session is still starting")
+		return linuxDesktop{}, errors.New("the desktop session is still starting")
 	}
 	home := homeOf(s.uid)
 	runtimeDir := fmt.Sprintf("/run/user/%d", s.uid)
@@ -49,6 +58,29 @@ func findDesktop(ctx context.Context) (desktop, error) {
 }
 
 func (d linuxDesktop) ID() string { return d.s.id }
+
+func (d linuxDesktop) Start(argv []string, stderr io.Writer) (process, error) {
+	cmd, err := d.Command(argv)
+	if err != nil {
+		return nil, err
+	}
+	if stderr != nil {
+		cmd.Stderr = stderr
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return cmdProcess{cmd}, nil
+}
+
+// cmdProcess is a process started with exec, in its own process group.
+type cmdProcess struct{ cmd *exec.Cmd }
+
+func (p cmdProcess) Pid() int    { return p.cmd.Process.Pid }
+func (p cmdProcess) Wait() error { return p.cmd.Wait() }
+
+// Terminate asks the app and its process group to quit.
+func (p cmdProcess) Terminate() { syscall.Kill(-p.cmd.Process.Pid, syscall.SIGTERM) }
 
 func (d linuxDesktop) Command(argv []string) (*exec.Cmd, error) {
 	path, err := lookPathIn(argv[0], envValue(d.env, "PATH"))
@@ -130,11 +162,6 @@ func watchDirs(ctx context.Context, dirs []string, changed func()) error {
 		}
 		changed()
 	}
-}
-
-// terminate asks the app and its process group to quit.
-func terminate(cmd *exec.Cmd) {
-	syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 }
 
 // sessionUserEnv is the whole environment of the user's process with the

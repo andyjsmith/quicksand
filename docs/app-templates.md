@@ -54,22 +54,18 @@ are counted separately even though they share a Proxmox template.
 
 ## How launching works
 
-Launching is done by the guest agent (Linux guests only, for now):
+Launching is done by the guest agent, on Linux and Windows guests:
 
 1. When a VM's agent first answers after it boots, Quicksand sends it the
    template's launch settings (`PUT /v1/launch`), plus the URL the VM was
    deployed with, if any. Until then the URL is kept with the VM in
    Quicksand's database, so a server restart doesn't lose it.
-2. The agent saves the settings in `/var/lib/quicksand-agent/launch.json`, so
-   the app comes back after a guest reboot without the server.
-3. The agent waits for someone to be signed in to the guest's screen (seat0;
-   in the browser template, LightDM signs the user in automatically). It
-   watches systemd-logind's session files (`/run/systemd/sessions` and
-   `/run/systemd/seats`, with inotify), so it hears about a sign-in at once,
-   and checks every 10 seconds as well. It then starts the app as that user,
-   with the environment of their session (`DISPLAY`, `XAUTHORITY`,
-   `WAYLAND_DISPLAY`, session bus and so on): in the browser template, a
-   few tenths of a second after the sign-in.
+2. The agent saves the settings in `launch.json`, in
+   `/var/lib/quicksand-agent` on Linux or `%ProgramData%\Quicksand` on
+   Windows, so the app comes back after a guest reboot without the server.
+   Links it hasn't opened yet are saved there too.
+3. The agent waits for someone to be signed in to the guest's screen, then
+   starts the app as that user (see below for how, on each system).
 4. If the app exits and `restart` is on, it's started again after a delay
    that grows with quick failures: 1s, 2s, 4s, up to a minute, and back to
    1s once it has run for a minute. If someone signs in afresh, the app is
@@ -85,6 +81,89 @@ the app printed before failing, and so on).
 Stopping or restarting the agent stops the app; the new agent starts it
 again. Agents from before app launching answer the settings with a 404, and
 the VM's page says the agent is too old: update the agent in the template.
+
+### On Linux
+
+The agent waits for a session on seat0 (in the browser template, LightDM
+signs the user in automatically). It watches systemd-logind's session files
+(`/run/systemd/sessions` and `/run/systemd/seats`, with inotify), so it hears
+about a sign-in at once, and checks every 10 seconds as well. It then starts
+the app as that user, with the environment of their session (`DISPLAY`,
+`XAUTHORITY`, `WAYLAND_DISPLAY`, session bus and so on): in the browser
+template, a few tenths of a second after the sign-in. Programs are looked up
+in the user's `PATH`.
+
+### On Windows
+
+The agent runs as a service in session 0, which has no screen. It starts
+the app in the console session as the user signed in there: with their
+token (`WTSQueryUserToken`), environment and profile directory, on the
+interactive desktop, never as SYSTEM. Each app runs in a job object, so
+stopping it stops whatever it started too. The agent checks the console
+session every second for someone signing in.
+
+Give programs by their full path, since installers rarely put browsers in
+`PATH` (the user's `PATH` is searched for bare names):
+
+```json
+"launch": {
+  "command": ["C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", "--start-maximized", "--no-first-run"],
+  "openURL": ["C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", "--start-maximized", "--no-first-run", "{url}"]
+}
+```
+
+Chrome is usually `C:\Program Files\Google\Chrome\Application\chrome.exe`,
+and Firefox `C:\Program Files\Mozilla Firefox\firefox.exe`. A Windows app
+template needs, besides the agent, the following;
+[`scripts/app-template/setup-windows-app.cmd`](../scripts/app-template/setup-windows-app.cmd)
+does all of it, and also stops the VM sleeping, hibernating or blanking its
+screen, and Windows Update restarting it while someone is signed in:
+
+- **Automatic sign-in.** Nothing launches at the sign-in screen. Use a
+  dedicated, non-administrator local account for it, so the app runs with
+  as few rights as possible:
+
+  ```bat
+  net user qsapp <password> /add /passwordchg:no /expires:never
+  powershell -Command "Set-LocalUser -Name qsapp -PasswordNeverExpires $true"
+  set W=HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
+  reg add "%W%" /v AutoAdminLogon /t REG_SZ /d 1 /f
+  reg add "%W%" /v DefaultUserName /t REG_SZ /d qsapp /f
+  reg add "%W%" /v DefaultDomainName /t REG_SZ /d . /f
+  reg add "%W%" /v DefaultPassword /t REG_SZ /d <password> /f
+  ```
+
+  (`net user` asks for confirmation if the password is longer than 14
+  characters, and its `/expires:never` is about the account, not the
+  password, hence the second line: an expired password stops automatic
+  sign-in.) The password is stored in the registry in plain text, which
+  is acceptable for a throwaway VM; Sysinternals Autologon stores it as an
+  LSA secret instead. Sign in once before converting the VM to a template,
+  so clones don't create the profile on every first boot.
+- **No first sign-in screens**, which otherwise cover the app:
+
+  ```bat
+  reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /v EnableFirstLogonAnimation /t REG_DWORD /d 0 /f
+  reg add HKLM\SOFTWARE\Policies\Microsoft\Windows\OOBE /v DisablePrivacyExperience /t REG_DWORD /d 1 /f
+  reg add HKLM\SOFTWARE\Policies\Microsoft\Edge /v HideFirstRunExperience /t REG_DWORD /d 1 /f
+  ```
+
+  The first two turn off Windows' "Hi, we're setting things up" animation
+  and its "Choose privacy settings for your device" screen; the last skips
+  Edge's welcome pages. Chrome and Firefox take the same policies as on
+  Linux, under `HKLM\SOFTWARE\Policies\Google\Chrome` and
+  `C:\Program Files\Mozilla Firefox\distribution\policies.json`.
+
+`qs-win10-edge` (VM 228) was built that way from the Windows 10 agent
+template (VM 230): a full clone, the script run
+through the agent (`qs upload` it, then
+`qs exec --timeout 300 <vm> 'C:\Windows\Temp\setup-windows-app.cmd <password>'`),
+a reboot so `qsapp` signs in once, then the same clean-up and conversion as
+for the Linux template below (the agent NIC is `e1000` there, like `net0`).
+Deployed with a link, Edge shows the page about 30 seconds after clicking
+**Open**: 8 to clone and start the VM, the rest for Windows to boot and sign
+in. It launches maximized as `qsapp`, opens links in a new tab when it's
+already running, and comes back a couple of seconds after it's closed.
 
 ## Opening links
 

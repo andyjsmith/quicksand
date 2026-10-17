@@ -1,18 +1,15 @@
-//go:build !linux
+//go:build !linux && !windows
 
 package agent
 
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"runtime"
 )
 
 func findDesktop(ctx context.Context) (desktop, error) {
-	return nil, fmt.Errorf("launching apps isn't supported on %s yet", runtime.GOOS)
+	return nil, fmt.Errorf("launching apps isn't supported on %s", runtime.GOOS)
 }
-
-func terminate(cmd *exec.Cmd) { cmd.Process.Kill() }
 
 func watchSessions(ctx context.Context, changed func()) {}

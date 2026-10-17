@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,10 +19,14 @@ type fakeDesktop struct{ id string }
 
 func (d fakeDesktop) ID() string { return d.id }
 
-func (d fakeDesktop) Command(argv []string) (*exec.Cmd, error) {
+func (d fakeDesktop) Start(argv []string, stderr io.Writer) (process, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	return cmd, nil
+	cmd.Stderr = stderr
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return cmdProcess{cmd}, nil
 }
 
 func testLauncher(t *testing.T, session *string) *launcher {
@@ -44,7 +49,7 @@ func appPID(l *launcher) int {
 	if l.app == nil {
 		return 0
 	}
-	return l.app.Process.Pid
+	return l.app.Pid()
 }
 
 // killApp kills the app and waits for the launcher to notice.
@@ -220,5 +225,43 @@ func TestLauncherHurriesAfterSessionChange(t *testing.T) {
 	}
 	if got := l.interval(); got != launchCheckInterval {
 		t.Errorf("interval with the app running = %v", got)
+	}
+}
+
+func TestLauncherKeepsPendingURLs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "launch.json")
+	l := newLauncher(path)
+	// Nobody is signed in yet.
+	l.findDesktop = func(context.Context) (desktop, error) { return nil, os.ErrNotExist }
+	settings := agentproto.LaunchSettings{Command: []string{"sleep", "30"}, OpenURL: []string{"sleep", "30", "{url}"}, Restart: true}
+	if _, err := l.set(agentproto.LaunchRequest{LaunchSettings: settings, Open: []string{"https://example.com/"}}); err != nil {
+		t.Fatal(err)
+	}
+	l.step(context.Background())
+	// The agent restarts before anyone signs in.
+	session := "1"
+	l2 := newLauncher(path)
+	l2.findDesktop = func(context.Context) (desktop, error) { return fakeDesktop{session}, nil }
+	t.Cleanup(func() { l2.mu.Lock(); l2.stopLocked(); l2.mu.Unlock() })
+	if len(l2.pending) != 1 {
+		t.Fatalf("pending after restart = %v", l2.pending)
+	}
+	if appPID(l2) == 0 {
+		t.Fatal("app not started")
+	}
+	if len(l2.pending) != 0 || len(newLauncher(path).pending) != 0 {
+		t.Errorf("URL still pending once opened: %v", l2.pending)
+	}
+}
+
+func TestLauncherWakesForRestart(t *testing.T) {
+	session := "1"
+	l := testLauncher(t, &session)
+	l.set(agentproto.LaunchRequest{LaunchSettings: agentproto.LaunchSettings{Command: []string{"sleep", "30"}, Restart: true}})
+	l.mu.Lock()
+	l.retryAt = time.Now().Add(time.Second)
+	l.mu.Unlock()
+	if got := l.interval(); got > 1100*time.Millisecond {
+		t.Errorf("interval with a restart due in 1s = %v", got)
 	}
 }

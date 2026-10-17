@@ -199,7 +199,7 @@ func restartVdagent(ctx context.Context, s graphicalSession) error {
 			break
 		}
 	}
-	d, err := findDesktop(ctx)
+	d, err := findLinuxDesktop(ctx)
 	if err != nil {
 		return err
 	}

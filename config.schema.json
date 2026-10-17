@@ -330,7 +330,7 @@
         },
         "launch": {
           "type": "object",
-          "description": "Has the agent keep an app running in the guest's desktop session, as the signed-in user (Linux guests only, for now). Needs agent. Several templates can share one Proxmox template (vmid), each launching a different app. See docs/agent.md.",
+          "description": "Has the agent keep an app running in the guest's desktop session, as the signed-in user (Linux and Windows guests). Needs agent. Several templates can share one Proxmox template (vmid), each launching a different app. See docs/agent.md.",
           "additionalProperties": false,
           "required": ["command"],
           "properties": {

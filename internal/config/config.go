@@ -333,7 +333,7 @@ type Template struct {
 }
 
 // Launch is an app the agent keeps running in the guest's desktop session,
-// as the signed-in user (Linux guests only, for now).
+// as the signed-in user (Linux and Windows guests).
 type Launch struct {
 	// Command is the program and its arguments, e.g. ["firefox"]. No shell
 	// is involved.
