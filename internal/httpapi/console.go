@@ -68,7 +68,7 @@ func (s *Server) handleCreateConsole(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		dial := func(ctx context.Context) (net.Conn, error) { return pve.DialSpice(ctx, t) }
-		sess = s.consoles.Create(owner, console.Spice, t.Password, vm.Name, 0, dial)
+		sess = s.consoles.Create(owner, console.Spice, t.Password, vm.Name, 0, s.inUse(vm.ID, dial))
 	case console.VNC:
 		t, err := s.pve.VNCProxy(r.Context(), vm.Node, vm.VMID)
 		if err != nil {
@@ -78,7 +78,7 @@ func (s *Server) handleCreateConsole(w http.ResponseWriter, r *http.Request) {
 		node, vmid := vm.Node, vm.VMID
 		dial := func(ctx context.Context) (net.Conn, error) { return s.pve.DialVNC(ctx, node, vmid, t) }
 		// vncproxy serves exactly one connection.
-		sess = s.consoles.Create(owner, console.VNC, t.Password, vm.Name, 1, dial)
+		sess = s.consoles.Create(owner, console.VNC, t.Password, vm.Name, 1, s.inUse(vm.ID, dial))
 	}
 	slog.Info("console session created", "vm", vm.ID, "vmid", strconv.Itoa(vm.VMID), "protocol", req.Protocol)
 	writeJSON(w, http.StatusCreated, createConsoleResponse{
@@ -88,6 +88,30 @@ func (s *Server) handleCreateConsole(w http.ResponseWriter, r *http.Request) {
 		Title:    sess.Title,
 		Path:     "/api/console/" + sess.ID + "/ws",
 	})
+}
+
+// inUse wraps a console's dialer so the VM counts as in use while its
+// connections are open.
+func (s *Server) inUse(vmID string, dial console.Dialer) console.Dialer {
+	return func(ctx context.Context) (net.Conn, error) {
+		conn, err := dial(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &usedConn{Conn: conn, done: s.vms.Use(vmID)}, nil
+	}
+}
+
+// usedConn is a connection that marks its VM as no longer in use (through
+// done) when it closes.
+type usedConn struct {
+	net.Conn
+	done func()
+}
+
+func (c *usedConn) Close() error {
+	c.done()
+	return c.Conn.Close()
 }
 
 func (s *Server) handleConsoleWS(w http.ResponseWriter, r *http.Request) {

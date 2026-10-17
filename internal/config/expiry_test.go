@@ -41,6 +41,15 @@ func TestExpiryAndQuotaDefaults(t *testing.T) {
 	if none.Expiry.Enabled() {
 		t.Error("no expiry section enables expiry")
 	}
+	if none.Suspend.Enabled() {
+		t.Error("no suspend section enables suspension")
+	}
+	for in, want := range map[string]bool{`{"idleTime": "2h"}`: true, `{"idleTime": ""}`: false, `{}`: false} {
+		var s Suspend
+		if err := json.Unmarshal([]byte(in), &s); err != nil || s.Enabled() != want {
+			t.Errorf("suspend %s: enabled = %v, %v; want %v", in, s.Enabled(), err, want)
+		}
+	}
 	for _, cfg := range []string{
 		`"quota": {"user": -1}`,
 		`"expiry": {"timeLimit": "1h", "maxExtends": -1}`,

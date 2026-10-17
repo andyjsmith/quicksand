@@ -159,6 +159,7 @@ func serve(args []string) error {
 	defer stop()
 	go expireSessions(ctx, db, cfg.AuditRetention())
 	go service.RunExpiry(ctx)
+	go service.RunSuspend(ctx)
 	go service.RunLinks(ctx)
 	go service.RunFirewall(ctx)
 	go func() {

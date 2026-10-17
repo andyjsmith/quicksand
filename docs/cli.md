@@ -80,7 +80,7 @@ template's ID names it too: with only `win10-2e1782` deployed from `win10`,
 | `qs ls [-a]` | Your VMs (`-a`: everyone's, for administrators) |
 | `qs templates`, `qs networks` | What you can deploy, and onto which networks |
 | `qs deploy [options] <template>` | Deploy and wait until ready. Options: `--name`, `--cpus`, `--memory` (MiB), `--network`, `--no-agent` (no agent NIC: the VM is isolated from Quicksand), `--no-wait` |
-| `qs start\|shutdown\|stop\|reboot\|reset\|suspend\|resume <vm>` | Power actions |
+| `qs start\|shutdown\|stop\|reboot\|reset\|suspend\|resume\|hibernate <vm>` | Power actions (`start` also resumes a hibernated VM) |
 | `qs destroy [-y] <vm>` | Destroy a VM and its disks |
 | `qs extend <vm>` | Push back a VM's expiry, where the server's `expiry` settings allow it |
 | `qs snapshot take [--disk-only] [--force] <vm>` | Snapshot a VM, with its memory unless `--disk-only`. Each VM has one snapshot; taking another replaces it (asks first, unless `--force`) |

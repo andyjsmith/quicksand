@@ -66,11 +66,18 @@ const (
 	PowerReset    PowerAction = "reset"
 	PowerSuspend  PowerAction = "suspend"
 	PowerResume   PowerAction = "resume"
+	// PowerHibernate saves the guest's memory to disk and stops it;
+	// PowerStart resumes it.
+	PowerHibernate PowerAction = "hibernate"
 )
 
 func (c *Client) Power(ctx context.Context, node string, vmid int, action PowerAction) (UPID, error) {
+	path, form := vmPath(node, vmid, "status", string(action)), url.Values{}
+	if action == PowerHibernate {
+		path, form = vmPath(node, vmid, "status", "suspend"), url.Values{"todisk": {"1"}}
+	}
 	var upid UPID
-	err := c.do(ctx, http.MethodPost, vmPath(node, vmid, "status", string(action)), url.Values{}, &upid)
+	err := c.do(ctx, http.MethodPost, path, form, &upid)
 	return upid, err
 }
 
@@ -99,8 +106,16 @@ type Status struct {
 	Agent int `json:"agent"`
 }
 
-// PowerState collapses Status into running, paused, suspended or stopped.
+// Hibernated reports whether the guest is stopped with its memory saved to
+// disk, to resume from when it's started.
+func (s Status) Hibernated() bool { return s.Status == "stopped" && s.Lock == "suspended" }
+
+// PowerState collapses Status into running, paused, suspended, hibernated
+// or stopped.
 func (s Status) PowerState() string {
+	if s.Hibernated() {
+		return "hibernated"
+	}
 	if s.Status == "running" && (s.QMPStatus == "paused" || s.QMPStatus == "suspended" || s.QMPStatus == "prelaunch") {
 		if s.QMPStatus == "prelaunch" {
 			return "paused"

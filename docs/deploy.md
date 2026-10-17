@@ -81,10 +81,11 @@ new binary.
 `"$schema": "./config.schema.json"` at the top of a config file next to it
 for autocompletion and checking in editors such as VS Code.
 
-### Expiry and quotas
+### Expiry, suspension and quotas
 
 ```json
 "expiry": { "timeLimit": "7d", "extendDuration": "24h", "maxExtends": 3 },
+"suspend": { "idleTime": "2h" },
 "quota": { "user": 5, "global": 50 },
 "templates": [{ "id": "win10", "quota": { "user": 1, "global": 4 }, ... }]
 ```
@@ -96,6 +97,17 @@ for autocompletion and checking in editors such as VS Code.
   never expire. When expiry is first configured, existing VMs get a full
   time limit from that moment. VMs close to expiring (within a day, or a
   quarter of the time limit if that's shorter) are flagged in red.
+- `suspend`: running VMs nobody has used for `idleTime` are hibernated:
+  Proxmox saves their memory to disk and stops them, freeing the host's
+  memory and CPU, and starting them again resumes them where they left off.
+  A VM is in use while someone has a console, shell, port forward or serial
+  console open on it, or is working with its files or processes through the
+  agent; work the guest does on its own (a long build, say) doesn't count, so
+  set `idleTime` with that in mind. The idle clock restarts whenever a VM is
+  started or the server restarts. Suspension doesn't pause expiry: a
+  hibernated VM is still destroyed when it expires. Without `suspend` or an
+  `idleTime`, VMs are never suspended. Users can also hibernate their VMs
+  themselves, whether or not this is configured.
 - `quota`: the most VMs one user (`user`) or everyone together (`global`) may
   have at once. The top-level quota counts every template; a template's own
   counts only its VMs. Unset limits are unlimited, and quotas apply to

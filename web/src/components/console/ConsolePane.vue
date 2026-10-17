@@ -111,7 +111,8 @@ async function powerOn() {
   if (!vm.value) return
   powerError.value = undefined
   try {
-    await api.power(vm.value.id, vm.value.power === 'stopped' ? 'start' : 'resume')
+    const stopped = vm.value.power === 'stopped' || vm.value.power === 'hibernated'
+    await api.power(vm.value.id, stopped ? 'start' : 'resume')
   } catch (e) {
     powerError.value = errorMessage(e)
   }

@@ -50,6 +50,11 @@ type View struct {
 	ExtendsLeft          *int       `json:"extendsLeft,omitempty"`
 	ExtendSeconds        int64      `json:"extendSeconds,omitempty"`
 	ExpiryWarningSeconds int64      `json:"expiryWarningSeconds,omitempty"`
+	// SuspendAt is when the running VM is hibernated if nobody uses it
+	// before then; unset if it's in use or VMs aren't suspended.
+	// SuspendWarningSeconds is how long before then to say so.
+	SuspendAt             *time.Time `json:"suspendAt,omitempty"`
+	SuspendWarningSeconds int64      `json:"suspendWarningSeconds,omitempty"`
 	// Snapshot is the VM's snapshot, if it has one.
 	Snapshot *SnapshotInfo `json:"snapshot,omitempty"`
 	// Serial is set when shells can use the VM's serial console.
@@ -137,6 +142,12 @@ func (s *Service) View(ctx context.Context, vm store.VM) View {
 		v.Power, v.Uptime, v.CPU, v.Mem, v.MaxMem = st.PowerState(), st.Uptime, st.CPU, st.Mem, st.MaxMem
 	}
 	v.Booting = v.Power == "running" && s.Booting(vm.ID)
+	if at := s.suspendAt(vm.ID); v.Power == "running" && !at.IsZero() {
+		v.SuspendAt = &at
+		// A quarter of an hour's notice, or a quarter of the idle time if
+		// that's shorter.
+		v.SuspendWarningSeconds = int64(min(15*time.Minute, time.Duration(s.cfg.Suspend.IdleTime)/4).Seconds())
+	}
 	if snap, err := s.snapshot(ctx, vm); err == nil {
 		v.Snapshot = snap
 	}

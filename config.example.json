@@ -82,6 +82,9 @@
     "extendDuration": "24h",
     "maxExtends": 3
   },
+  "suspend": {
+    "idleTime": "2h"
+  },
   "quota": {
     "user": 5,
     "global": 50

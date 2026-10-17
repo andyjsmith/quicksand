@@ -105,3 +105,21 @@ func TestSnapshotJSON(t *testing.T) {
 		t.Errorf("snapshots = %+v", list)
 	}
 }
+
+func TestPowerState(t *testing.T) {
+	for _, c := range []struct {
+		st   Status
+		want string
+	}{
+		{Status{Status: "running", QMPStatus: "running"}, "running"},
+		{Status{Status: "running", QMPStatus: "paused"}, "paused"},
+		{Status{Status: "running", QMPStatus: "prelaunch"}, "paused"},
+		{Status{Status: "stopped", QMPStatus: "stopped"}, "stopped"},
+		{Status{Status: "stopped", QMPStatus: "stopped", Lock: "suspended"}, "hibernated"},
+		{Status{Status: "stopped", QMPStatus: "stopped", Lock: "clone"}, "stopped"},
+	} {
+		if got := c.st.PowerState(); got != c.want {
+			t.Errorf("%+v: %q, want %q", c.st, got, c.want)
+		}
+	}
+}

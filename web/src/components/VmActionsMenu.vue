@@ -3,6 +3,7 @@ import {
   EllipsisVertical,
   History,
   Info,
+  Moon,
   Link2,
   Link2Off,
   Pause,
@@ -126,8 +127,11 @@ defineExpose({ power })
         <DropdownMenuSeparator />
       </template>
       <template v-if="ready">
-        <DropdownMenuItem :disabled="busy || vm.power !== 'stopped'" @select="power('start')">
-          <Play /> Start
+        <DropdownMenuItem
+          :disabled="busy || (vm.power !== 'stopped' && vm.power !== 'hibernated')"
+          @select="power('start')"
+        >
+          <Play /> {{ vm.power === 'hibernated' ? 'Resume' : 'Start' }}
         </DropdownMenuItem>
         <DropdownMenuItem :disabled="busy || vm.power !== 'running'" @select="power('shutdown')">
           <Power /> Shut down
@@ -143,10 +147,17 @@ defineExpose({ power })
           <Play /> Resume
         </DropdownMenuItem>
         <DropdownMenuItem v-else :disabled="busy || vm.power !== 'running'" @select="power('suspend')">
-          <Pause /> Suspend
+          <Pause /> Pause
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          :disabled="busy || vm.power !== 'running'"
+          title="Save its memory to disk and stop it, freeing resources until you resume it"
+          @select="power('hibernate')"
+        >
+          <Moon /> Hibernate
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem :disabled="busy || vm.power === 'stopped'" @select="power('stop')">
+        <DropdownMenuItem :disabled="busy || vm.power === 'stopped' || vm.power === 'hibernated'" @select="power('stop')">
           <Square /> Force stop
         </DropdownMenuItem>
         <DropdownMenuItem :disabled="busy || vm.power !== 'running'" @select="power('reset')">

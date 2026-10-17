@@ -143,6 +143,18 @@
         }
       }
     },
+    "suspend": {
+      "type": "object",
+      "description": "Hibernates running VMs (saving their memory to disk and stopping them) once nobody has used them for a while, freeing memory and CPU on Proxmox until their owners resume them. A VM is in use while it has a console, shell, port forward, file transfer or other agent session open. Doesn't affect expiry. Without an idle time, VMs are never suspended.",
+      "additionalProperties": false,
+      "properties": {
+        "idleTime": {
+          "$ref": "#/definitions/duration",
+          "description": "How long a running VM may go unused before it's hibernated. Unset or empty: VMs aren't suspended.",
+          "examples": ["2h"]
+        }
+      }
+    },
     "quota": {
       "$ref": "#/definitions/quota",
       "description": "Limits how many VMs exist at once across all templates. Unset limits are unlimited."

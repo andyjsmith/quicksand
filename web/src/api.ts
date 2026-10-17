@@ -70,8 +70,9 @@ export interface Network {
 }
 
 export type VMState = 'deploying' | 'ready' | 'failed' | 'destroying'
-export type PowerState = 'running' | 'stopped' | 'paused' | 'suspended' | 'unknown'
-export type PowerAction = 'start' | 'shutdown' | 'stop' | 'reboot' | 'reset' | 'suspend' | 'resume'
+/** hibernated: stopped with its memory saved to disk, which starting it resumes from. */
+export type PowerState = 'running' | 'stopped' | 'paused' | 'suspended' | 'hibernated' | 'unknown'
+export type PowerAction = 'start' | 'shutdown' | 'stop' | 'reboot' | 'reset' | 'suspend' | 'resume' | 'hibernate'
 /** What a VM is busy doing: a power action, or one on its snapshot. */
 export type VMAction = PowerAction | 'snapshot' | 'revert' | 'delete-snapshot'
 
@@ -147,6 +148,10 @@ export interface VM {
   extendSeconds?: number
   /** How long before expiring the VM should be flagged as about to. */
   expiryWarningSeconds?: number
+  /** When the running VM is hibernated if nobody uses it before then; unset while it's in use or if VMs aren't suspended. */
+  suspendAt?: string
+  /** How long before being hibernated the VM should be flagged as about to. */
+  suspendWarningSeconds?: number
   /** False when the guest has no USB tablet, so a VNC mouse is relative. */
   absolutePointer: boolean
   /** Set for VMs with a Quicksand agent. */

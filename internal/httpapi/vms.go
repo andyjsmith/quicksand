@@ -197,7 +197,7 @@ func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 
 var powerActions = map[pve.PowerAction]bool{
 	pve.PowerStart: true, pve.PowerShutdown: true, pve.PowerStop: true, pve.PowerReboot: true,
-	pve.PowerReset: true, pve.PowerSuspend: true, pve.PowerResume: true,
+	pve.PowerReset: true, pve.PowerSuspend: true, pve.PowerResume: true, pve.PowerHibernate: true,
 }
 
 func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
@@ -289,6 +289,19 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+	}
+}
+
+// using counts requests to h as use of the VM named in the path for as long
+// as they last (so for shells and the like, while they're open), keeping
+// it from being suspended as idle.
+func (s *Server) using(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vm, err := s.store.VM(r.Context(), r.PathValue("id"))
+		if u := auth.FromContext(r.Context()); err == nil && (vm.OwnerID == u.ID || u.IsAdmin) {
+			defer s.vms.Use(vm.ID)()
+		}
+		h(w, r)
 	}
 }
 

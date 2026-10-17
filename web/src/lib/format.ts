@@ -27,8 +27,9 @@ export const actionLabels: Record<VMAction, string> = {
   stop: 'Stopping',
   reboot: 'Rebooting',
   reset: 'Resetting',
-  suspend: 'Suspending',
+  suspend: 'Pausing',
   resume: 'Resuming',
+  hibernate: 'Hibernating',
 }
 
 /** A short status for a VM and the colour of its status dot. */
@@ -53,6 +54,8 @@ export function vmStatus(vm: VM): { label: string; dot: string } {
       return { label: 'Paused', dot: 'bg-sky-500' }
     case 'suspended':
       return { label: 'Suspended', dot: 'bg-sky-500' }
+    case 'hibernated':
+      return { label: 'Hibernated', dot: 'bg-sky-500' }
     default:
       return { label: 'Unknown', dot: 'bg-muted-foreground' }
   }
@@ -113,6 +116,13 @@ export function expiryState(vm: VM, now: number): ExpiryState | null {
     soon: remaining <= (vm.expiryWarningSeconds ?? 86_400) * 1000,
     canExtend: vm.extendsLeft !== 0,
   }
+}
+
+/** How long until an idle VM is hibernated (ms), if it's soon enough to mention. */
+export function suspendSoon(vm: VM, now: number): number | null {
+  if (!vm.suspendAt || vm.state !== 'ready' || vm.power !== 'running' || vm.action) return null
+  const remaining = Math.max(0, new Date(vm.suspendAt).getTime() - now)
+  return remaining <= (vm.suspendWarningSeconds ?? 900) * 1000 ? remaining : null
 }
 
 /** How long ago a time was, roughly: "just now", "5 minutes ago", "2 days ago". */

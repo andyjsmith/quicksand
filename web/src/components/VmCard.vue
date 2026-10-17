@@ -8,11 +8,12 @@ import { Card } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { useMinuteClock } from '@/composables/useNow'
-import { expiryState, formatMemory, formatUptime, osIcon, vmStatus } from '@/lib/format'
+import { expiryState, formatMemory, suspendSoon, formatUptime, osIcon, vmStatus } from '@/lib/format'
 import { loadPreview, onPreviewChange } from '@/lib/previews'
 import { linkColor } from '@/composables/useLinks'
 import ActionProgressBar from './ActionProgressBar.vue'
 import ExpiryBadge from './ExpiryBadge.vue'
+import SuspendBadge from './SuspendBadge.vue'
 import VmActionsMenu from './VmActionsMenu.vue'
 
 const props = defineProps<{ vm: VM }>()
@@ -28,6 +29,7 @@ const linkTitle = computed(() => {
 })
 const now = useMinuteClock()
 const expiringSoon = computed(() => !!expiryState(props.vm, now.value.getTime())?.soon)
+const suspendingSoon = computed(() => suspendSoon(props.vm, now.value.getTime()) !== null)
 const icon = computed(() => osIcon(props.vm.os))
 const ready = computed(() => props.vm.state === 'ready')
 const busy = computed(() => props.vm.state === 'deploying' || props.vm.state === 'destroying' || !!props.vm.action)
@@ -44,6 +46,7 @@ const power = (action: PowerAction) => actions.value?.power(action)
 const primaryPower = computed<{ action: PowerAction; label: string } | null>(() => {
   if (!ready.value || busy.value) return null
   if (props.vm.power === 'stopped') return { action: 'start', label: 'Start' }
+  if (props.vm.power === 'hibernated') return { action: 'start', label: 'Resume' }
   if (props.vm.power === 'paused' || props.vm.power === 'suspended') return { action: 'resume', label: 'Resume' }
   return null
 })
@@ -142,8 +145,9 @@ const primaryPower = computed<{ action: PowerAction; label: string } | null>(() 
         </Button>
       </div>
 
-      <div v-if="vm.link || vm.expiresAt" class="-mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div v-if="vm.link || vm.expiresAt || suspendingSoon" class="-mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
         <ExpiryBadge v-if="vm.expiresAt" :vm="vm" extendable @error="error = $event" />
+        <SuspendBadge :vm="vm" />
         <span
           v-if="vm.link"
           class="text-muted-foreground flex items-center gap-1 text-xs"

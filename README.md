@@ -28,6 +28,8 @@ Proxmox account (or your attention) to get one.
   and its link network, with presets like "Internet only" for VMs that
   shouldn't touch the local network.
 - Expiry with optional extensions, and quotas per user, per template and overall.
+- Hibernation: VMs nobody has used for a while can be hibernated automatically
+  to free memory and CPU, and starting one resumes it where it left off.
 - An admin page for users, everyone's machines and an audit log of who did what.
 - Passwords, single sign-on through Keycloak or another OpenID Connect
   provider, or both. With SSO, users are created on first sign-in and a group

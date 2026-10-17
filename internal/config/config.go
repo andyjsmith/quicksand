@@ -41,6 +41,9 @@ type Config struct {
 	// are deployed unless their owners extend them. Without it, VMs never
 	// expire.
 	Expiry *Expiry `json:"expiry,omitempty"`
+	// Suspend, if set with an idle time, hibernates running VMs nobody has
+	// used for that long. Without it, VMs are never suspended.
+	Suspend *Suspend `json:"suspend,omitempty"`
 	// Quota limits how many VMs exist at once, across all templates; each
 	// template can have its own as well. Without it, there is no limit.
 	Quota *Quota `json:"quota,omitempty"`
@@ -155,6 +158,19 @@ type Expiry struct {
 
 // Enabled reports whether VMs expire at all.
 func (e *Expiry) Enabled() bool { return e != nil && e.TimeLimit > 0 }
+
+// Suspend configures hibernating idle VMs, which frees the memory and CPU
+// they hold on Proxmox until their owners resume them. It doesn't affect
+// expiry.
+type Suspend struct {
+	// IdleTime is how long a running VM may go without a console, shell,
+	// file transfer or other session before it's hibernated, e.g. "2h".
+	// Zero or unset: VMs aren't suspended.
+	IdleTime Duration `json:"idleTime"`
+}
+
+// Enabled reports whether idle VMs are suspended at all.
+func (s *Suspend) Enabled() bool { return s != nil && s.IdleTime > 0 }
 
 // Quota limits how many VMs exist at once; unset limits are unlimited.
 type Quota struct {

@@ -55,6 +55,8 @@ type Service struct {
 	boots map[string]*bootWatch
 	// snapshots caches each VM's snapshot (nil: none), once read.
 	snapshots map[string]*SnapshotInfo
+	// usage tracks how each VM is being used, for suspending idle ones.
+	usage map[string]*usage
 	// linkMu serializes link network changes; linkStates holds whether each
 	// linked VM's agent has set its address.
 	linkMu     sync.Mutex
@@ -85,6 +87,7 @@ type actionState struct {
 func NewService(cfg *config.Config, client *pve.Client, s *store.Store, hub *Hub, agents *agentclient.Client) *Service {
 	return &Service{cfg: cfg, pve: client, store: s, hub: hub, jobs: map[string]*job{}, actions: map[string]actionState{},
 		consoles: map[string]consoleInfo{}, boots: map[string]*bootWatch{}, snapshots: map[string]*SnapshotInfo{},
+		usage:      map[string]*usage{},
 		linkStates: map[string]linkState{},
 		agents:     agents, probes: agentProbes{results: map[string]agentProbe{}}}
 }
@@ -335,6 +338,7 @@ func (s *Service) runDeploy(ctx context.Context, vm store.VM, tmpl config.Templa
 		s.fail(vm, fmt.Errorf("power on: %w", err))
 		return
 	}
+	s.resetIdle(vm.ID)
 	s.progress(vm, store.VMReady, "", 1)
 	slog.Info("vm ready", "id", vm.ID, "vmid", vm.VMID, "agentIP", vm.AgentIP)
 	if agentEnabled(cfg) || vm.AgentIP != "" {
@@ -440,8 +444,9 @@ func (s *Service) runDestroy(ctx context.Context, vm store.VM) {
 		return
 	}
 	// A cancelled deployment can leave a clone task running on Proxmox,
-	// which keeps the VM locked until it finishes.
-	for deadline := time.Now().Add(lockWaitTimeout); err == nil && status.Lock != "" && time.Now().Before(deadline); {
+	// which keeps the VM locked until it finishes. Hibernated VMs stay
+	// locked until they're resumed, but Proxmox deletes them as they are.
+	for deadline := time.Now().Add(lockWaitTimeout); err == nil && status.Lock != "" && !status.Hibernated() && time.Now().Before(deadline); {
 		s.progress(vm, store.VMDestroying, "Waiting for Proxmox ("+status.Lock+")", 0.1)
 		select {
 		case <-ctx.Done():
@@ -502,6 +507,9 @@ func (s *Service) Power(ctx context.Context, vm store.VM, action pve.PowerAction
 			state.Error = fmt.Sprintf("%s: %v", action, err)
 		}
 		bootsOS := action == pve.PowerStart || action == pve.PowerReboot || action == pve.PowerReset
+		if err == nil && (bootsOS || action == pve.PowerResume) {
+			s.resetIdle(vm.ID)
+		}
 		if err == nil && bootsOS {
 			if info, ok := s.consoleInfo(ctx, vm); ok && (info.agent || vm.AgentIP != "") {
 				s.watchBoot(vm, info.agent)
@@ -556,6 +564,7 @@ func (s *Service) remove(vm store.VM) {
 	delete(s.consoles, vm.ID)
 	delete(s.snapshots, vm.ID)
 	delete(s.linkStates, vm.ID)
+	delete(s.usage, vm.ID)
 	s.mu.Unlock()
 	s.forgetProbe(vm.ID)
 	slog.Info("vm destroyed", "id", vm.ID, "vmid", vm.VMID)

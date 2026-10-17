@@ -7,6 +7,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import ExpiryBadge from '@/components/ExpiryBadge.vue'
+import SuspendBadge from '@/components/SuspendBadge.vue'
 import VmActionsMenu from '@/components/VmActionsMenu.vue'
 import ConnectionsTab from '@/components/vm/ConnectionsTab.vue'
 import FilesTab from '@/components/vm/FilesTab.vue'
@@ -52,6 +53,7 @@ const tab = ref('overview')
               <span class="inline-block size-2 rounded-full" :class="status?.dot" />
               {{ status?.label }}
               <ExpiryBadge v-if="vm.expiresAt" :vm="vm" extendable class="ml-2" @error="error = $event" />
+              <SuspendBadge :vm="vm" class="ml-2" />
             </p>
           </div>
           <Button v-if="canConnect" as-child>
