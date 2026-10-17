@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,7 +26,7 @@ import (
 )
 
 const usage = `Usage:
-  quicksand [serve] [-config path] [-debug]
+  quicksand [serve] [-config path] [-debug] [-dev-web URL]
   quicksand user add [-config path] [-admin] <username>
   quicksand user passwd [-config path] <username>
   quicksand user delete [-config path] <username>
@@ -75,6 +76,7 @@ func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	configPath := fs.String("config", defaultConfig(), "path to the configuration file")
 	debug := fs.Bool("debug", false, "enable debug logging")
+	devWeb := fs.String("dev-web", "", "for development: proxy the web client to this dev server `URL` (e.g. http://localhost:5173)")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	fs.Parse(args)
 
@@ -128,14 +130,20 @@ func serve(args []string) error {
 	defer service.Shutdown()
 
 	static := web.Dist()
-	if static == nil {
-		slog.Info("web client not embedded; serving API only (use the Vite dev server)")
+	var devWebURL *url.URL
+	if *devWeb != "" {
+		if devWebURL, err = url.Parse(*devWeb); err != nil || devWebURL.Host == "" {
+			return fmt.Errorf("invalid -dev-web URL %q", *devWeb)
+		}
+		slog.Info("proxying the web client to its dev server", "url", devWebURL)
+	} else if static == nil {
+		slog.Info("web client not embedded; serving API only (use the Vite dev server, or -dev-web)")
 	}
 	srv := &http.Server{
 		Addr: cfg.Listen,
 		Handler: httpapi.New(httpapi.Deps{
 			Config: cfg, PVE: client, Store: db, Sessions: auth.NewSessions(db, cfg.SecureCookies), SSO: sso,
-			VMs: service, Hub: hub, Static: static, AgentPublicKey: agentPublicKey,
+			VMs: service, Hub: hub, Static: static, DevWeb: devWebURL, AgentPublicKey: agentPublicKey,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}

@@ -114,18 +114,29 @@ build. In short:
 ## Hacking on it
 
 The server serves only the API unless it's built with the `embedweb` tag, so
-during development run it next to the Vite dev server:
+during development run it next to the Vite dev server, and have it proxy the
+web client to Vite:
 
 ```sh
-go run ./cmd/quicksand serve -config config.json
+go run ./cmd/quicksand serve -config config.json -dev-web http://localhost:5173
 ```
 
 ```sh
 cd web && npm install && npm run dev
 ```
 
-Vite proxies API and console traffic to `127.0.0.1:8484`; point it elsewhere
-with `QUICKSAND_BACKEND`. For tests and type checks:
+Then use the server's address (`http://127.0.0.1:8484`, or `https://` with a
+`tls` section) for everything: pages and hot reload come from Vite, and the
+API from the server, on one origin, so single sign-on redirects work as in
+production. With a self-signed `tls` certificate, the server works for
+providers that only redirect to `https`.
+
+Without `-dev-web`, open Vite's address instead: it proxies API and console
+traffic to `127.0.0.1:8484` (or `QUICKSAND_BACKEND`, whose certificate isn't
+checked). `QUICKSAND_DEV_CERT` and `QUICKSAND_DEV_KEY` serve Vite itself over
+HTTPS.
+
+For tests and type checks:
 
 ```sh
 go test ./...

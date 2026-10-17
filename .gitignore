@@ -1,6 +1,8 @@
 # Local credentials and config
 creds.txt
 config.json
+dev-tls.crt
+dev-tls.key
 
 # Build output
 /quicksand

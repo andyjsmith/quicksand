@@ -45,6 +45,9 @@ type Deps struct {
 	Hub *vms.Hub
 	// Static, if non-nil, is the built web client served for non-API paths.
 	Static fs.FS
+	// DevWeb, if set, is a web client dev server (Vite) that non-API paths
+	// are proxied to instead, so development uses a single origin.
+	DevWeb *url.URL
 	// AgentPublicKey is the key agents must trust; empty without an agent.
 	AgentPublicKey string
 }
@@ -119,7 +122,10 @@ func New(d Deps) *Server {
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("not found"))
 	})
-	if d.Static != nil {
+	switch {
+	case d.DevWeb != nil:
+		s.mux.Handle("/", devWebProxy(d.DevWeb))
+	case d.Static != nil:
 		s.mux.Handle("/", spaHandler(d.Static))
 	}
 	return s
