@@ -5,6 +5,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { api, errorMessage, type Network, type Template, type VM } from '@/api'
 import AppHeader from '@/components/AppHeader.vue'
+import TemplateIcon from '@/components/TemplateIcon.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,7 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { formatMemory, osIcon } from '@/lib/format'
+import { formatMemory } from '@/lib/format'
 
 // /open?template=ID&url=URL[&network=ID] opens the URL, e.g. from the
 // "Open in Quicksand" browser extension: in a new VM of the template, on the
@@ -164,7 +165,7 @@ async function open() {
           </div>
           <div v-else-if="template && mode === 'new'" class="flex items-center gap-3 text-sm">
             <div class="bg-muted flex size-9 shrink-0 items-center justify-center rounded-md">
-              <component :is="osIcon(template.os)" class="size-4" />
+              <TemplateIcon :icon="template.icon" :os="template.os" :class="template.icon ? 'size-6' : 'size-4'" />
             </div>
             <div class="min-w-0">
               <p class="truncate font-medium">{{ template.name }}</p>

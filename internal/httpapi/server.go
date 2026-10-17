@@ -84,6 +84,7 @@ func New(d Deps) *Server {
 	s.mux.Handle("DELETE /api/tokens/{id}", user(audit("token.revoke", s.handleDeleteToken)))
 
 	s.mux.Handle("GET /api/templates", user(s.handleTemplates))
+	s.mux.Handle("GET /api/templates/{id}/icon", user(s.handleTemplateIcon))
 	s.mux.Handle("GET /api/networks", user(s.handleNetworks))
 	s.mux.Handle("GET /api/vms", user(s.handleListVMs))
 	s.mux.Handle("POST /api/vms", user(audit("vm.deploy", s.handleDeploy)))

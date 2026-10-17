@@ -8,11 +8,12 @@ import { Card } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { useMinuteClock } from '@/composables/useNow'
-import { expiryState, formatMemory, suspendSoon, formatUptime, osIcon, vmStatus } from '@/lib/format'
+import { expiryState, formatMemory, suspendSoon, formatUptime, vmStatus } from '@/lib/format'
 import { loadPreview, onPreviewChange } from '@/lib/previews'
 import { linkColor } from '@/composables/useLinks'
 import ActionProgressBar from './ActionProgressBar.vue'
 import ExpiryBadge from './ExpiryBadge.vue'
+import TemplateIcon from './TemplateIcon.vue'
 import SuspendBadge from './SuspendBadge.vue'
 import VmActionsMenu from './VmActionsMenu.vue'
 
@@ -30,7 +31,6 @@ const linkTitle = computed(() => {
 const now = useMinuteClock()
 const expiringSoon = computed(() => !!expiryState(props.vm, now.value.getTime())?.soon)
 const suspendingSoon = computed(() => suspendSoon(props.vm, now.value.getTime()) !== null)
-const icon = computed(() => osIcon(props.vm.os))
 const ready = computed(() => props.vm.state === 'ready')
 const busy = computed(() => props.vm.state === 'deploying' || props.vm.state === 'destroying' || !!props.vm.action)
 const canConnect = computed(() => ready.value && props.vm.power === 'running' && props.vm.consoles.length > 0)
@@ -72,7 +72,7 @@ const primaryPower = computed<{ action: PowerAction; label: string } | null>(() 
         :class="{ 'opacity-40 grayscale': !canConnect }"
       />
       <div v-else class="text-muted-foreground flex size-full items-center justify-center">
-        <component :is="icon" class="size-10 opacity-40" />
+        <TemplateIcon :icon="vm.templateIcon" :os="vm.os" class="size-10 opacity-40" />
       </div>
       <div
         v-if="canConnect"

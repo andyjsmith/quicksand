@@ -51,6 +51,7 @@
       "name": "Firefox",
       "description": "Firefox in a lightweight Linux VM.",
       "os": "linux",
+      "icon": "firefox.png",
       "agent": true,
       "launch": {
         "command": ["firefox"],

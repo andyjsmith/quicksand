@@ -3,15 +3,20 @@ package config
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"quicksand/internal/agentproto"
@@ -325,6 +330,14 @@ type Template struct {
 	// running in the guest's desktop session. Several templates can share
 	// a VM template, each launching a different app.
 	Launch *Launch `json:"launch,omitempty"`
+	// Icon, if set, is the file name of an image in the icons folder next
+	// to the configuration file (PNG, JPEG, GIF, WebP or SVG, at most
+	// 512 KiB), shown for the template instead of its OS's icon.
+	Icon string `json:"icon"`
+	// IconData and IconType are the icon's contents and media type, read
+	// when the configuration is loaded.
+	IconData []byte `json:"-"`
+	IconType string `json:"-"`
 	// Serial enables shells over a serial console: the Proxmox serial
 	// port to use, "serial0" to "serial3". Deploys add it (as a socket)
 	// when the template lacks it. The guest must run a login prompt on
@@ -386,7 +399,74 @@ func Load(path string) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := cfg.loadIcons(filepath.Join(filepath.Dir(path), IconsDir)); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	return cfg, nil
+}
+
+// IconsDir is the folder, next to the configuration file, template icons
+// are read from.
+const IconsDir = "icons"
+
+// MaxIconSize is the largest template icon accepted.
+const MaxIconSize = 512 << 10
+
+// loadIcons reads the templates' icons from dir.
+func (c *Config) loadIcons(dir string) error {
+	for i := range c.Templates {
+		t := &c.Templates[i]
+		if t.Icon == "" {
+			continue
+		}
+		if t.Icon != filepath.Base(t.Icon) || strings.ContainsAny(t.Icon, `/\`) || t.Icon == "." || t.Icon == ".." {
+			return fmt.Errorf("templates[%d].icon: give a file name in %s, not a path", i, IconsDir)
+		}
+		path := filepath.Join(dir, t.Icon)
+		st, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("templates[%d].icon: %w", i, err)
+		}
+		if st.Size() > MaxIconSize {
+			return fmt.Errorf("templates[%d].icon: %s is larger than %d KiB", i, path, MaxIconSize>>10)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("templates[%d].icon: %w", i, err)
+		}
+		typ := iconType(t.Icon, data)
+		if typ == "" {
+			return fmt.Errorf("templates[%d].icon: %s isn't a PNG, JPEG, GIF, WebP or SVG image", i, path)
+		}
+		t.IconData, t.IconType = data, typ
+	}
+	return nil
+}
+
+// IconURL is where the template's icon is served, "" if it has none. It
+// changes with the icon's contents, so it can be cached indefinitely.
+func (t Template) IconURL() string {
+	if t.IconData == nil {
+		return ""
+	}
+	sum := sha256.Sum256(t.IconData)
+	return "/api/templates/" + url.PathEscape(t.ID) + "/icon?v=" + hex.EncodeToString(sum[:6])
+}
+
+// iconType is an icon's media type, from its contents (and, for SVG, its
+// name too): "" if it isn't an image type icons may be.
+func iconType(name string, data []byte) string {
+	switch typ := http.DetectContentType(data); typ {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return typ
+	}
+	if strings.EqualFold(filepath.Ext(name), ".svg") {
+		head := strings.ToLower(string(data[:min(len(data), 4096)]))
+		if strings.Contains(head, "<svg") {
+			return "image/svg+xml"
+		}
+	}
+	return ""
 }
 
 func (c *Config) validate() error {

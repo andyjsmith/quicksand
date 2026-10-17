@@ -323,6 +323,11 @@
           "$ref": "#/definitions/quota",
           "description": "Limits how many VMs of this template exist at once. Unset limits are unlimited."
         },
+        "icon": {
+          "type": "string",
+          "description": "File name of an image in the icons folder next to this configuration file (e.g. /etc/quicksand/icons), shown for the template instead of its OS's icon: PNG, JPEG, GIF, WebP or SVG, at most 512 KiB. Read when Quicksand starts.",
+          "examples": ["edge.png"]
+        },
         "serial": {
           "type": "string",
           "enum": ["", "serial0", "serial1", "serial2", "serial3"],

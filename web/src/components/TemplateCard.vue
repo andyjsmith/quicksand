@@ -1,22 +1,21 @@
 <script setup lang="ts">
 import { ExternalLink, Rocket } from '@lucide/vue'
-import { computed } from 'vue'
 import type { Template } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { formatMemory, osIcon } from '@/lib/format'
+import { formatMemory } from '@/lib/format'
+import TemplateIcon from './TemplateIcon.vue'
 
-const props = defineProps<{ template: Template }>()
+defineProps<{ template: Template }>()
 defineEmits<{ deploy: [] }>()
 
-const icon = computed(() => osIcon(props.template.os))
 </script>
 
 <template>
   <Card class="flex flex-col gap-3 p-4">
     <div class="flex items-start gap-3">
       <div class="bg-muted flex size-10 shrink-0 items-center justify-center rounded-md">
-        <component :is="icon" class="size-5" />
+        <TemplateIcon :icon="template.icon" :os="template.os" :class="template.icon ? 'size-7' : 'size-5'" />
       </div>
       <div class="min-w-0 flex-1">
         <h3 class="flex min-w-0 items-baseline gap-2 text-sm font-semibold">

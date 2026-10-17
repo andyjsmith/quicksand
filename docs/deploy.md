@@ -81,6 +81,21 @@ new binary.
 `"$schema": "./config.schema.json"` at the top of a config file next to it
 for autocompletion and checking in editors such as VS Code.
 
+### Template icons
+
+Templates show an icon for their OS unless they have their own: put images
+in an `icons` folder next to the configuration file (for the packages,
+`/etc/quicksand/icons/`, readable by the `quicksand` user) and name one in
+the template:
+
+```json
+"templates": [{ "id": "firefox", "icon": "firefox.png", ... }]
+```
+
+PNG, JPEG, GIF, WebP and SVG are accepted, up to 512 KiB; square images look
+best. Quicksand reads them when it starts (restart it after adding or
+changing one), and refuses to start if one is missing or isn't an image.
+
 ### App templates
 
 A template's `launch` has the agent keep one app running in its VMs, such as

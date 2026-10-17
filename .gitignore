@@ -12,6 +12,7 @@ web/node_modules/
 web/dist/
 dist/
 .vite/
+/icons/
 
 # Database
 quicksand.db

@@ -50,7 +50,10 @@ template, VM 227:
   actions menu (or `qs relaunch <vm>`) starts it again.
 
 Quotas, expiry and suspension apply per template ID, so Chrome and Firefox
-are counted separately even though they share a Proxmox template.
+are counted separately even though they share a Proxmox template. Give
+them their own icons (`"icon": "chrome.png"`, from the `icons` folder next to
+the configuration file; see [deploy.md](deploy.md#template-icons)) so they're
+easy to tell apart.
 
 ## How launching works
 

@@ -18,7 +18,8 @@ import AgentPanel from '@/components/console/AgentPanel.vue'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { linkColor } from '@/composables/useLinks'
-import { formatAgo, formatBytes, formatMemory, formatUptime, osIcon, vmStatus } from '@/lib/format'
+import { formatAgo, formatBytes, formatMemory, formatUptime, vmStatus } from '@/lib/format'
+import TemplateIcon from '@/components/TemplateIcon.vue'
 import { loadPreview, onPreviewChange } from '@/lib/previews'
 
 const props = defineProps<{ vm: VM }>()
@@ -99,7 +100,7 @@ const agentLine = computed(() => {
             <CardContent class="px-4">
               <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-sm">
                 <dt class="text-muted-foreground">Template</dt>
-                <dd class="flex items-center gap-1.5"><component :is="osIcon(vm.os)" class="text-muted-foreground size-3.5" /> {{ vm.templateName }}</dd>
+                <dd class="flex items-center gap-1.5"><TemplateIcon :icon="vm.templateIcon" :os="vm.os" class="text-muted-foreground size-3.5" /> {{ vm.templateName }}</dd>
                 <dt class="text-muted-foreground">Size</dt>
                 <dd>{{ vm.cores }} CPUs · {{ formatMemory(vm.memoryMiB) }}</dd>
                 <dt class="text-muted-foreground">Proxmox ID</dt>
@@ -193,7 +194,7 @@ const agentLine = computed(() => {
         >
           <img v-if="preview" :src="preview" alt="" class="size-full object-cover" />
           <div v-else class="text-muted-foreground flex size-full items-center justify-center">
-            <component :is="osIcon(vm.os)" class="size-10 opacity-40" />
+            <TemplateIcon :icon="vm.templateIcon" :os="vm.os" class="size-10 opacity-40" />
           </div>
         </component>
         <CardContent class="px-4 pb-4">

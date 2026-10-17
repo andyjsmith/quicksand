@@ -12,10 +12,12 @@ import (
 
 // View is a deployed VM as the web client sees it.
 type View struct {
-	ID           string        `json:"id"`
-	Name         string        `json:"name"`
-	TemplateID   string        `json:"templateId"`
-	TemplateName string        `json:"templateName"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	TemplateID   string `json:"templateId"`
+	TemplateName string `json:"templateName"`
+	// TemplateIcon is the URL of the template's icon, if it has one.
+	TemplateIcon string        `json:"templateIcon,omitempty"`
 	OS           string        `json:"os"`
 	VMID         int           `json:"vmid"`
 	Cores        int           `json:"cores"`
@@ -115,7 +117,7 @@ func (s *Service) View(ctx context.Context, vm store.VM) View {
 		CreatedAt: vm.CreatedAt,
 	}
 	if t, ok := s.cfg.Template(vm.TemplateID); ok {
-		v.TemplateName, v.OS = t.Name, t.OS
+		v.TemplateName, v.OS, v.TemplateIcon = t.Name, t.OS, t.IconURL()
 	}
 	if n, ok := s.cfg.Network(vm.NetworkID); ok {
 		v.NetworkLabel = n.Label

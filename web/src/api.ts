@@ -51,6 +51,8 @@ export interface Template {
   description: string
   /** Icon hint: windows, linux or other. */
   os: string
+  /** URL of the template's own icon, if it has one. */
+  icon?: string
   cores: number
   memoryMiB: number
   maxCores: number
@@ -110,6 +112,8 @@ export interface VM {
   name: string
   templateId: string
   templateName: string
+  /** URL of the template's own icon, if it has one. */
+  templateIcon?: string
   os: string
   vmid: number
   cores: number

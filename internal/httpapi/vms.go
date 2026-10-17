@@ -19,10 +19,12 @@ import (
 const snapshotInterval = 5 * time.Second
 
 type templateView struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	OS           string `json:"os"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	OS          string `json:"os"`
+	// Icon is the URL of the template's icon, if it has one.
+	Icon         string `json:"icon,omitempty"`
 	Cores        int    `json:"cores"`
 	MemoryMiB    int    `json:"memoryMiB"`
 	MaxCores     int    `json:"maxCores"`
@@ -43,7 +45,7 @@ func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
 	out := make([]templateView, 0, len(s.cfg.Templates))
 	for _, t := range s.cfg.Templates {
 		v := templateView{
-			ID: t.ID, Name: t.Name, Description: t.Description, OS: t.OS,
+			ID: t.ID, Name: t.Name, Description: t.Description, OS: t.OS, Icon: t.IconURL(),
 			MaxCores: t.MaxCores, MaxMemoryMiB: t.MaxMemoryMiB, Agent: t.Agent && s.cfg.Agent != nil,
 		}
 		if v.Agent && t.Launch != nil {
@@ -62,6 +64,24 @@ func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
 		out = append(out, v)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// handleTemplateIcon serves a template's icon. SVG icons can hold scripts:
+// they don't run in <img>, and the sandbox keeps them from running if the
+// icon is opened directly.
+func (s *Server) handleTemplateIcon(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.cfg.Template(r.PathValue("id"))
+	if !ok || t.IconData == nil {
+		writeError(w, http.StatusNotFound, errors.New("no icon"))
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", t.IconType)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+	// Icon URLs change with their contents.
+	h.Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Write(t.IconData)
 }
 
 type networkView struct {
