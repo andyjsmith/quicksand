@@ -6,6 +6,7 @@ dev-tls.key
 
 # Build output
 /quicksand
+/qs
 web/node_modules/
 web/dist/
 dist/

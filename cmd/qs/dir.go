@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -8,11 +9,14 @@ import (
 	"text/tabwriter"
 
 	"quicksand/internal/agentproto"
+
+	"github.com/urfave/cli/v3"
 )
 
 // cmdDir lists a guest directory: the files directory by default, or an
 // absolute path or one relative to it. On Windows, "/" lists the drives.
-func cmdDir(args []string) error {
+func cmdDir(ctx context.Context, cmd *cli.Command) error {
+	args := cmd.Args().Slice()
 	if len(args) < 1 || len(args) > 2 {
 		return errors.New("usage: qs dir <vm> [path]")
 	}

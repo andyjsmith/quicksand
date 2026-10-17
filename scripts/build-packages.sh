@@ -40,6 +40,10 @@ for what in "$@"; do
 		done
 		;;
 	cli)
+		for shell in bash fish zsh; do
+			go run ./cmd/qs completion "$shell" >"dist/packaging/qs.$shell"
+		done
+		mv dist/packaging/qs.zsh dist/packaging/_qs
 		for arch in amd64 arm64; do
 			cp "dist/cli/qs-linux-$arch" dist/packaging/qs
 			pack quicksand-cli "$arch"

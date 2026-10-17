@@ -52,7 +52,7 @@ Templates without the agent can still get a shell over a serial console.
 `exec`, file transfers and port forwarding into the guest. For example:
 
 ```sh
-qs deploy -name scratch debian
+qs deploy --name scratch debian
 qs shell scratch
 qs upload scratch ./sample.zip
 qs snapshot take scratch

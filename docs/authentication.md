@@ -203,14 +203,14 @@ You can turn the option off again once everyone has moved.
 
 SSO users have no password, so they can't use password sign-in. An
 administrator can give one a password (**Set password** on the Admin page),
-for example for scripts that use `qs login -password`.
+for example for scripts that use `qs login --password`.
 
 ### Single sign-on only
 
 With `"disablePasswords": true`:
 
 - the sign-in page shows only the SSO button;
-- password sign-in is refused, also for `qs login -password`;
+- password sign-in is refused, also for `qs login --password`;
 - the Admin page no longer adds users or sets passwords, and users can't
   change theirs.
 
@@ -230,8 +230,8 @@ through the browser:
    session. A code caught by anyone else is useless without that secret.
 
 The browser must run on the same machine as `qs`. Over SSH, either sign in
-with a password (`qs login -password`, if you have one), or forward the
-port `qs` prints in the URL (`cli_port`) with `ssh -L`. `qs login -password`
+with a password (`qs login --password`, if you have one), or forward the
+port `qs` prints in the URL (`cli_port`) with `ssh -L`. `qs login --password`
 also skips the browser when the server offers both. See
 [cli.md](cli.md#signing-in).
 

@@ -14,7 +14,7 @@ qs login https://quicksand.example
 
 If the server has single sign-on, `qs` opens your browser to sign in there
 and receives the session on a temporary `127.0.0.1` port; the browser must
-run on the same machine as `qs`. Otherwise, or with `-password`, `qs` asks
+run on the same machine as `qs`. Otherwise, or with `--password`, `qs` asks
 for your username and password. See
 [authentication.md](authentication.md#the-command-line-1). Either way, it saves the session in
 `~/.config/quicksand/cli.json` (`%AppData%\quicksand\cli.json` on Windows),
@@ -22,10 +22,34 @@ readable only by you. If the server's certificate isn't trusted by your
 system, as with the self-signed one the installer creates, `qs` shows its
 SHA-256 fingerprint and asks whether to trust it; the answer is pinned, so a
 replaced certificate is refused until you sign in again. Pass
-`-fingerprint` to pin a known fingerprint without the prompt.
+`--fingerprint` to pin a known fingerprint without the prompt.
 
 `qs whoami` shows the account in use; `qs logout` ends the session (a
 single sign-on session at the provider stays signed in).
+
+## Help
+
+`qs help` lists the commands, and `qs help <command>` (or
+`qs <command> --help`) shows a command's options. Long options take two
+dashes (`--name`); one dash (`-name`) works too.
+
+## Shell completion
+
+`qs` completes its commands and options, and your VM names, template IDs
+and network IDs (asked from the server, as you), in bash, zsh, fish and
+PowerShell. The .deb and .rpm packages set this up for bash, zsh and fish.
+Otherwise, load the script `qs completion <shell>` prints:
+
+| Shell | Add to |
+| --- | --- |
+| bash | `~/.bashrc`: `source <(qs completion bash)` (needs the bash-completion package) |
+| zsh | `~/.zshrc`, after `compinit`: `source <(qs completion zsh)` |
+| fish | `qs completion fish > ~/.config/fish/completions/qs.fish` (once) |
+| PowerShell | `$PROFILE`: `qs completion pwsh \| Out-String \| Invoke-Expression` |
+
+Completing a VM or template asks the server, so it needs you to be signed
+in; when the server can't be reached, `qs` just suggests nothing, and where
+nothing is suggested the shell completes local paths.
 
 ## Commands
 
@@ -38,20 +62,20 @@ template's ID names it too: with only `win10-2e1782` deployed from `win10`,
 | --- | --- |
 | `qs ls [-a]` | Your VMs (`-a`: everyone's, for administrators) |
 | `qs templates`, `qs networks` | What you can deploy, and onto which networks |
-| `qs deploy [options] <template>` | Deploy and wait until ready. Options: `-name`, `-cpus`, `-memory` (MiB), `-network`, `-no-agent` (no agent NIC: the VM is isolated from Quicksand), `-no-wait` |
+| `qs deploy [options] <template>` | Deploy and wait until ready. Options: `--name`, `--cpus`, `--memory` (MiB), `--network`, `--no-agent` (no agent NIC: the VM is isolated from Quicksand), `--no-wait` |
 | `qs start\|shutdown\|stop\|reboot\|reset\|suspend\|resume <vm>` | Power actions |
 | `qs destroy [-y] <vm>` | Destroy a VM and its disks |
 | `qs extend <vm>` | Push back a VM's expiry, where the server's `expiry` settings allow it |
-| `qs snapshot take [-disk-only] [-force] <vm>` | Snapshot a VM, with its memory unless `-disk-only`. Each VM has one snapshot; taking another replaces it (asks first, unless `-force`) |
-| `qs snapshot revert [-force] <vm>` | Return a VM to its snapshot, which is kept so you can revert again (asks first, unless `-force`) |
-| `qs snapshot delete [-force] <vm>` | Delete a VM's snapshot (asks first, unless `-force`) |
-| `qs link [-merge] [-name NAME] <vm> <vm>...` | Join VMs into a private link network, where they reach each other and nothing else. VMs already in different networks merge them (asks first, unless `-merge`); `-name` names the network |
+| `qs snapshot take [--disk-only] [--force] <vm>` | Snapshot a VM, with its memory unless `--disk-only`. Each VM has one snapshot; taking another replaces it (asks first, unless `--force`) |
+| `qs snapshot revert [--force] <vm>` | Return a VM to its snapshot, which is kept so you can revert again (asks first, unless `--force`) |
+| `qs snapshot delete [--force] <vm>` | Delete a VM's snapshot (asks first, unless `--force`) |
+| `qs link [--merge] [--name NAME] <vm> <vm>...` | Join VMs into a private link network, where they reach each other and nothing else. VMs already in different networks merge them (asks first, unless `--merge`); `--name` names the network |
 | `qs unlink <vm>` | Take a VM out of its link network (a network left with one VM is removed) |
 | `qs ps <vm>` | The guest's processes (needs the agent) |
 | `qs kill [-f] <vm> <pid>` | End a guest process; `-f` sends SIGKILL on Linux (Windows always terminates) |
 | `qs netstat <vm>` | The guest's TCP and UDP sockets and their processes |
-| `qs exec [-timeout s] [-i] [-argv] <vm> <command...>` | Run one command and print its output (see below) |
-| `qs shell [-t\|-T] [-shell program\|-serial] <vm> [command...]` | A shell in the guest, or run a command there (see below) |
+| `qs exec [--timeout s] [-i] [--argv] <vm> <command...>` | Run one command and print its output (see below) |
+| `qs shell [-t\|-T] [--shell program\|--serial] <vm> [command...]` | A shell in the guest, or run a command there (see below) |
 | `qs forward <vm> <forward>...` | Forward local ports into the guest's network (see below) |
 | `qs dir <vm> [path]` | List the guest's files directory, or `path` (`/` lists the drives on Windows) |
 | `qs download [-r [-u]] [-e password] <vm> <remote> [local]` | Download files and folders (see below) |
@@ -67,13 +91,13 @@ like the web UI's "Run a command". It exits with the command's exit code.
 qs exec web1 df -h
 qs exec win1 'ipconfig /all'
 qs exec -i web1 'sort | uniq -c' < words.txt
-qs exec -argv web1 ls -l '/path with spaces'
+qs exec --argv web1 ls -l '/path with spaces'
 ```
 
-- `-timeout seconds` (default 60, at most 1800) kills the command after
+- `--timeout seconds` (default 60, at most 1800) kills the command after
   that long; `qs` then exits with 124, like `timeout`.
 - `-i` sends standard input to the command (up to 4 MiB).
-- `-argv` runs the program directly with the given arguments, without a
+- `--argv` runs the program directly with the given arguments, without a
   shell to interpret them.
 
 Output is capped at 4 MiB per stream. For long-running or interactive
@@ -99,13 +123,13 @@ qs shell web1 sort < names.txt
 `-t` gives a command a terminal anyway (for programs like `top`); `-T`
 gives an interactive shell pipes instead. Options go before the VM.
 
-`-shell` picks another shell program, by name (looked up in the guest's
+`--shell` picks another shell program, by name (looked up in the guest's
 PATH) or path, for both interactive shells and commands:
 
 ```sh
-qs shell -shell cmd win1                 # cmd.exe instead of PowerShell
-qs shell -shell pwsh win1 'Get-Date'     # a command through PowerShell 7
-qs shell -shell zsh web1
+qs shell --shell cmd win1                 # cmd.exe instead of PowerShell
+qs shell --shell pwsh win1 'Get-Date'     # a command through PowerShell 7
+qs shell --shell zsh web1
 ```
 
 Commands run through it with `/c` for cmd, `-Command` for PowerShell and
@@ -115,7 +139,7 @@ Commands run through it with `/c` for cmd, `-Command` for PowerShell and
 
 For templates that enable it (`"serial"` in the server's template config),
 `qs shell` falls back to the VM's serial console when the VM has no
-connected agent, and `qs shell -serial <vm>` uses it regardless. It's a
+connected agent, and `qs shell --serial <vm>` uses it regardless. It's a
 terminal on the guest's login prompt, so it can't run single commands.
 Press Enter if nothing shows, and **Ctrl-]** to disconnect; the console stays
 logged in after you disconnect, so log out first.

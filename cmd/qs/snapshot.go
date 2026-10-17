@@ -2,52 +2,30 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/urfave/cli/v3"
 )
 
-const snapshotUsage = `usage: qs snapshot take [-disk-only] [-force] <vm>
-       qs snapshot revert [-force] <vm>
-       qs snapshot delete [-force] <vm>`
-
-// cmdSnapshot manages a VM's one snapshot: take (replacing any), revert to
-// it (keeping it) or delete it.
-func cmdSnapshot(args []string) error {
-	if len(args) == 0 {
-		return errors.New(snapshotUsage)
-	}
-	switch args[0] {
-	case "take":
-		return snapshotTake(args[1:])
-	case "revert":
-		return snapshotRevert(args[1:])
-	case "delete":
-		return snapshotDelete(args[1:])
-	}
-	return errors.New(snapshotUsage)
-}
-
-func snapshotTake(args []string) error {
-	fs := flag.NewFlagSet("snapshot take", flag.ExitOnError)
-	diskOnly := fs.Bool("disk-only", false, "skip the memory (reverting then leaves the VM stopped)")
-	force := fs.Bool("force", false, "replace an existing snapshot without asking")
-	fs.Parse(reorder(args, nil))
-	c, v, err := vmArg(fs.Args(), "qs snapshot take [-disk-only] [-force] <vm>")
+// snapshotTake snapshots a VM, replacing its snapshot (each VM has one).
+func snapshotTake(ctx context.Context, cmd *cli.Command) error {
+	c, v, err := vmArg(cmd.Args().Slice(), "qs snapshot take [--disk-only] [--force] <vm>")
 	if err != nil {
 		return err
 	}
-	if v.Snapshot != nil && !*force {
+	if v.Snapshot != nil && !cmd.Bool("force") {
 		if err := confirm(fmt.Sprintf("Replace the snapshot of %s from %s?", v.Name, snapshotTime(v))); err != nil {
 			return err
 		}
 	}
 	// Memory only exists while the VM runs.
-	memory := !*diskOnly && v.Power == "running"
+	memory := !cmd.Bool("disk-only") && v.Power == "running"
 	if err := c.do("POST", snapshotPath(v), map[string]bool{"memory": memory}, nil); err != nil {
 		return err
 	}
@@ -58,18 +36,16 @@ func snapshotTake(args []string) error {
 	return waitAction(c, v, fmt.Sprintf("Snapshotting %s (%s)", v.Name, what))
 }
 
-func snapshotRevert(args []string) error {
-	fs := flag.NewFlagSet("snapshot revert", flag.ExitOnError)
-	force := fs.Bool("force", false, "don't ask for confirmation")
-	fs.Parse(reorder(args, nil))
-	c, v, err := vmArg(fs.Args(), "qs snapshot revert [-force] <vm>")
+// snapshotRevert returns a VM to its snapshot, which is kept.
+func snapshotRevert(ctx context.Context, cmd *cli.Command) error {
+	c, v, err := vmArg(cmd.Args().Slice(), "qs snapshot revert [--force] <vm>")
 	if err != nil {
 		return err
 	}
 	if v.Snapshot == nil {
 		return fmt.Errorf("%s has no snapshot", v.Name)
 	}
-	if !*force {
+	if !cmd.Bool("force") {
 		if err := confirm(fmt.Sprintf("Revert %s to its snapshot from %s? Everything since is lost.", v.Name, snapshotTime(v))); err != nil {
 			return err
 		}
@@ -80,18 +56,15 @@ func snapshotRevert(args []string) error {
 	return waitAction(c, v, "Reverting "+v.Name)
 }
 
-func snapshotDelete(args []string) error {
-	fs := flag.NewFlagSet("snapshot delete", flag.ExitOnError)
-	force := fs.Bool("force", false, "don't ask for confirmation")
-	fs.Parse(reorder(args, nil))
-	c, v, err := vmArg(fs.Args(), "qs snapshot delete [-force] <vm>")
+func snapshotDelete(ctx context.Context, cmd *cli.Command) error {
+	c, v, err := vmArg(cmd.Args().Slice(), "qs snapshot delete [--force] <vm>")
 	if err != nil {
 		return err
 	}
 	if v.Snapshot == nil {
 		return fmt.Errorf("%s has no snapshot", v.Name)
 	}
-	if !*force {
+	if !cmd.Bool("force") {
 		if err := confirm(fmt.Sprintf("Delete the snapshot of %s from %s?", v.Name, snapshotTime(v))); err != nil {
 			return err
 		}

@@ -2,9 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/urfave/cli/v3"
 	"golang.org/x/term"
 
 	"quicksand/internal/agentproto"
@@ -27,47 +28,39 @@ const escapeKey = 0x1d
 // ssh, it gets a terminal when interactive and pipes otherwise. Without a
 // connected agent it falls back to the serial console, where the template
 // enables that.
-func cmdShell(args []string) error {
-	fs := flag.NewFlagSet("shell", flag.ExitOnError)
-	forceTTY := fs.Bool("t", false, "give the command a terminal")
-	noTTY := fs.Bool("T", false, "don't give the shell a terminal")
-	serial := fs.Bool("serial", false, "use the serial console, even if the VM has an agent")
-	shellProg := fs.String("shell", "", "the shell `program` to use, e.g. cmd or pwsh on Windows, zsh on Linux\n(default: PowerShell on Windows, the login shell elsewhere)")
-	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: qs shell [-t | -T] [-shell program | -serial] <vm> [command...]")
-		fs.PrintDefaults()
-	}
+func cmdShell(ctx context.Context, cmd *cli.Command) error {
+	forceTTY, noTTY := cmd.Bool("t"), cmd.Bool("T")
+	serial, shellProg := cmd.Bool("serial"), cmd.String("shell")
 	// Flags come before the VM; everything after it is the command.
-	fs.Parse(args)
-	if fs.NArg() < 1 {
-		fs.Usage()
-		os.Exit(2)
+	args := cmd.Args().Slice()
+	if len(args) < 1 {
+		return errors.New("usage: qs shell [-t | -T] [--shell program | --serial] <vm> [command...]")
 	}
 	c, err := signedIn()
 	if err != nil {
 		return err
 	}
-	v, err := findVM(c, fs.Arg(0))
+	v, err := findVM(c, args[0])
 	if err != nil {
 		return err
 	}
-	command := strings.Join(fs.Args()[1:], " ")
+	command := strings.Join(args[1:], " ")
 	stdinTTY := term.IsTerminal(int(os.Stdin.Fd()))
 	agentUp := v.Agent != nil && v.Agent.Status == "connected"
-	if *serial || (!agentUp && v.Serial && *shellProg == "") {
-		if *shellProg != "" {
-			return errors.New("-shell doesn't apply to the serial console")
+	if serial || (!agentUp && v.Serial && shellProg == "") {
+		if shellProg != "" {
+			return errors.New("--shell doesn't apply to the serial console")
 		}
 		return serialShell(c, v, command, stdinTTY)
 	}
-	pty := !*noTTY && (*forceTTY || (command == "" && stdinTTY))
+	pty := !noTTY && (forceTTY || (command == "" && stdinTTY))
 
 	q := url.Values{}
 	if command != "" {
 		q.Set("command", command)
 	}
-	if *shellProg != "" {
-		q.Set("shell", *shellProg)
+	if shellProg != "" {
+		q.Set("shell", shellProg)
 	}
 	if pty {
 		cols, rows := terminalSize()

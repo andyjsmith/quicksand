@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -11,6 +12,8 @@ import (
 	"strings"
 
 	"quicksand/internal/agentproto"
+
+	"github.com/urfave/cli/v3"
 )
 
 // forward is a local port forwarded to an address as the guest sees it.
@@ -80,7 +83,8 @@ func splitAddr(s string) ([]string, error) {
 
 // cmdForward forwards local ports to addresses reached from the guest, like
 // ssh -L (local forwards only), until interrupted.
-func cmdForward(args []string) error {
+func cmdForward(ctx context.Context, cmd *cli.Command) error {
+	args := cmd.Args().Slice()
 	if len(args) < 2 || strings.HasPrefix(args[0], "-") {
 		return errors.New("usage: qs forward <vm> [bind_address:]port:host:hostport...")
 	}

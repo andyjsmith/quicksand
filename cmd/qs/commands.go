@@ -2,9 +2,9 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"errors"
-	"flag"
 	"fmt"
 	"net"
 	"net/url"
@@ -15,6 +15,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/urfave/cli/v3"
 	"golang.org/x/term"
 
 	"quicksand/internal/agentproto"
@@ -117,24 +118,20 @@ func signedIn() (*client, error) {
 	return newClient(s), nil
 }
 
-func cmdLogin(args []string) error {
-	fs := flag.NewFlagSet("login", flag.ExitOnError)
-	fingerprint := fs.String("fingerprint", "", "trust a server certificate with this SHA-256 fingerprint")
-	usePassword := fs.Bool("password", false, "sign in with a password even if the server has single sign-on")
-	fs.Parse(args)
-	if fs.NArg() != 1 {
-		return errors.New("usage: qs login [-password] [-fingerprint SHA256] <server URL>")
+func cmdLogin(ctx context.Context, cmd *cli.Command) error {
+	if cmd.NArg() != 1 {
+		return errors.New("usage: qs login [--password] [--fingerprint SHA256] <server URL>")
 	}
-	server := strings.TrimRight(fs.Arg(0), "/")
+	server := strings.TrimRight(cmd.Args().First(), "/")
 	if !strings.Contains(server, "://") {
 		server = "https://" + server
 	}
 	u, err := url.Parse(server)
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
-		return fmt.Errorf("invalid server URL %q", fs.Arg(0))
+		return fmt.Errorf("invalid server URL %q", cmd.Args().First())
 	}
 	in := bufio.NewReader(os.Stdin)
-	s := settings{Server: server, Fingerprint: normalizeFingerprint(*fingerprint)}
+	s := settings{Server: server, Fingerprint: normalizeFingerprint(cmd.String("fingerprint"))}
 	if u.Scheme == "https" && s.Fingerprint == "" {
 		if s.Fingerprint, err = checkCertificate(in, u.Host); err != nil {
 			return err
@@ -148,7 +145,7 @@ func cmdLogin(args []string) error {
 	}
 	var username string
 	switch {
-	case methods.SSO != nil && (!*usePassword || !methods.Password):
+	case methods.SSO != nil && (!cmd.Bool("password") || !methods.Password):
 		if s.Session, username, err = c.ssoLogin(methods.SSO.Name); err != nil {
 			return err
 		}
@@ -234,7 +231,7 @@ func formatFingerprint(fp string) string {
 	return strings.Join(parts, ":")
 }
 
-func cmdLogout() error {
+func cmdLogout(ctx context.Context, cmd *cli.Command) error {
 	c, err := signedIn()
 	if err != nil {
 		return err
@@ -247,7 +244,7 @@ func cmdLogout() error {
 	return os.Remove(p)
 }
 
-func cmdWhoami() error {
+func cmdWhoami(ctx context.Context, cmd *cli.Command) error {
 	c, err := signedIn()
 	if err != nil {
 		return err
@@ -267,16 +264,13 @@ func cmdWhoami() error {
 	return nil
 }
 
-func cmdList(args []string) error {
-	fs := flag.NewFlagSet("ls", flag.ExitOnError)
-	all := fs.Bool("a", false, "list everyone's VMs (administrators only)")
-	fs.Parse(args)
+func cmdList(ctx context.Context, cmd *cli.Command) error {
 	c, err := signedIn()
 	if err != nil {
 		return err
 	}
 	path := "/api/vms"
-	if *all {
+	if cmd.Bool("a") {
 		path += "?all=1"
 	}
 	var list []vm
@@ -297,7 +291,7 @@ func cmdList(args []string) error {
 	if linked {
 		header += "\tLINKED"
 	}
-	if *all {
+	if cmd.Bool("a") {
 		header += "\tOWNER"
 	}
 	fmt.Fprintln(w, header)
@@ -328,7 +322,7 @@ func cmdList(args []string) error {
 			}
 			line += "\t" + link
 		}
-		if *all {
+		if cmd.Bool("a") {
 			line += "\t" + v.Owner
 		}
 		fmt.Fprintln(w, line)
@@ -343,7 +337,7 @@ func formatMiB(m int) string {
 	return fmt.Sprintf("%d MiB", m)
 }
 
-func cmdTemplates() error {
+func cmdTemplates(ctx context.Context, cmd *cli.Command) error {
 	c, err := signedIn()
 	if err != nil {
 		return err
@@ -384,7 +378,7 @@ func cmdTemplates() error {
 	return nil
 }
 
-func cmdNetworks() error {
+func cmdNetworks(ctx context.Context, cmd *cli.Command) error {
 	c, err := signedIn()
 	if err != nil {
 		return err
@@ -409,24 +403,19 @@ func cmdNetworks() error {
 	return w.Flush()
 }
 
-func cmdDeploy(args []string) error {
-	fs := flag.NewFlagSet("deploy", flag.ExitOnError)
-	name := fs.String("name", "", "VM name (default: generated)")
-	cpus := fs.Int("cpus", 0, "number of CPUs (default: the template's)")
-	memory := fs.Int("memory", 0, "memory in MiB (default: the template's)")
-	network := fs.String("network", "", "network ID (default: the default network)")
-	noAgent := fs.Bool("no-agent", false, "deploy without the agent network, fully isolated from Quicksand")
-	noWait := fs.Bool("no-wait", false, "return once the deployment has started")
-	fs.Parse(reorder(args, map[string]bool{"name": true, "cpus": true, "memory": true, "network": true}))
-	if fs.NArg() != 1 {
+func cmdDeploy(ctx context.Context, cmd *cli.Command) error {
+	if cmd.NArg() != 1 {
 		return errors.New("usage: qs deploy [options] <template>")
 	}
 	c, err := signedIn()
 	if err != nil {
 		return err
 	}
-	req := map[string]any{"templateId": fs.Arg(0), "name": *name, "cores": *cpus, "memoryMiB": *memory, "networkId": *network}
-	if *noAgent {
+	req := map[string]any{
+		"templateId": cmd.Args().First(), "name": cmd.String("name"),
+		"cores": cmd.Int("cpus"), "memoryMiB": cmd.Int("memory"), "networkId": cmd.String("network"),
+	}
+	if cmd.Bool("no-agent") {
 		req["agent"] = false
 	}
 	var v vm
@@ -434,7 +423,7 @@ func cmdDeploy(args []string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "Deploying %s (VM %d).\n", v.Name, v.VMID)
-	if *noWait {
+	if cmd.Bool("no-wait") {
 		return nil
 	}
 	return waitDeployed(c, v)
@@ -471,30 +460,6 @@ func waitDeployed(c *client, v vm) error {
 	}
 	fmt.Fprintf(os.Stderr, "%s is ready.\n", v.Name)
 	return nil
-}
-
-// reorder moves flags after positional arguments to the front, so
-// "qs deploy win10 -cpus 4" works; valued names flags that take a value.
-func reorder(args []string, valued map[string]bool) []string {
-	var flags, rest []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
-			rest = append(rest, args[i+1:]...)
-			break
-		}
-		if strings.HasPrefix(a, "-") && len(a) > 1 {
-			flags = append(flags, a)
-			name := strings.TrimLeft(a, "-")
-			if valued[name] && !strings.Contains(name, "=") && i+1 < len(args) {
-				flags = append(flags, args[i+1])
-				i++
-			}
-			continue
-		}
-		rest = append(rest, a)
-	}
-	return append(flags, rest...)
 }
 
 // findVM resolves a VM by Quicksand ID, Proxmox VM ID or name.
@@ -575,8 +540,8 @@ func vmArg(args []string, usage string) (*client, vm, error) {
 	return c, v, err
 }
 
-func cmdPower(action string, args []string) error {
-	c, v, err := vmArg(args, "qs "+action+" <vm>")
+func cmdPower(action string, cmd *cli.Command) error {
+	c, v, err := vmArg(cmd.Args().Slice(), "qs "+action+" <vm>")
 	if err != nil {
 		return err
 	}
@@ -587,8 +552,8 @@ func cmdPower(action string, args []string) error {
 	return nil
 }
 
-func cmdExtend(args []string) error {
-	c, v, err := vmArg(args, "qs extend <vm>")
+func cmdExtend(ctx context.Context, cmd *cli.Command) error {
+	c, v, err := vmArg(cmd.Args().Slice(), "qs extend <vm>")
 	if err != nil {
 		return err
 	}
@@ -608,15 +573,12 @@ func cmdExtend(args []string) error {
 	return nil
 }
 
-func cmdDestroy(args []string) error {
-	fs := flag.NewFlagSet("destroy", flag.ExitOnError)
-	yes := fs.Bool("y", false, "don't ask for confirmation")
-	fs.Parse(reorder(args, nil))
-	c, v, err := vmArg(fs.Args(), "qs destroy [-y] <vm>")
+func cmdDestroy(ctx context.Context, cmd *cli.Command) error {
+	c, v, err := vmArg(cmd.Args().Slice(), "qs destroy [-y] <vm>")
 	if err != nil {
 		return err
 	}
-	if !*yes {
+	if !cmd.Bool("y") {
 		if err := confirm(fmt.Sprintf("Destroy %s (VM %d) and its disks? This can't be undone.", v.Name, v.VMID)); err != nil {
 			return err
 		}
@@ -628,8 +590,8 @@ func cmdDestroy(args []string) error {
 	return nil
 }
 
-func cmdPs(args []string) error {
-	c, v, err := vmArg(args, "qs ps <vm>")
+func cmdPs(ctx context.Context, cmd *cli.Command) error {
+	c, v, err := vmArg(cmd.Args().Slice(), "qs ps <vm>")
 	if err != nil {
 		return err
 	}
@@ -660,27 +622,24 @@ func formatBytes(b uint64) string {
 	return strconv.FormatUint(b, 10)
 }
 
-func cmdKill(args []string) error {
-	fs := flag.NewFlagSet("kill", flag.ExitOnError)
-	force := fs.Bool("f", false, "kill immediately (SIGKILL on Linux; Windows always does)")
-	fs.Parse(reorder(args, nil))
-	if fs.NArg() != 2 {
+func cmdKill(ctx context.Context, cmd *cli.Command) error {
+	if cmd.NArg() != 2 {
 		return errors.New("usage: qs kill [-f] <vm> <pid>")
 	}
-	pid, err := strconv.Atoi(fs.Arg(1))
+	pid, err := strconv.Atoi(cmd.Args().Get(1))
 	if err != nil || pid <= 0 {
-		return fmt.Errorf("invalid pid %q", fs.Arg(1))
+		return fmt.Errorf("invalid pid %q", cmd.Args().Get(1))
 	}
-	c, v, err := vmArg(fs.Args()[:1], "qs kill [-f] <vm> <pid>")
+	c, v, err := vmArg(cmd.Args().Slice()[:1], "qs kill [-f] <vm> <pid>")
 	if err != nil {
 		return err
 	}
 	return c.do("POST", fmt.Sprintf("/api/vms/%s/processes/%d/kill", url.PathEscape(v.ID), pid),
-		agentproto.KillRequest{Force: *force}, nil)
+		agentproto.KillRequest{Force: cmd.Bool("f")}, nil)
 }
 
-func cmdNetstat(args []string) error {
-	c, v, err := vmArg(args, "qs netstat <vm>")
+func cmdNetstat(ctx context.Context, cmd *cli.Command) error {
+	c, v, err := vmArg(cmd.Args().Slice(), "qs netstat <vm>")
 	if err != nil {
 		return err
 	}

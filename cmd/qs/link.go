@@ -1,8 +1,8 @@
 package main
 
 import (
+	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,18 +10,17 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/urfave/cli/v3"
 )
 
-const linkUsage = "qs link [-merge] [-name NAME] <vm> <vm>..."
+const linkUsage = "qs link [--merge] [--name NAME] <vm> <vm>..."
 
 // cmdLink joins VMs into one link network, merging the networks they're
-// in (after asking, unless -merge).
-func cmdLink(args []string) error {
-	fs := flag.NewFlagSet("link", flag.ExitOnError)
-	merge := fs.Bool("merge", false, "merge the VMs' networks without asking, when they're in different ones")
-	name := fs.String("name", "", "name the network")
-	fs.Parse(reorder(args, map[string]bool{"name": true}))
-	if fs.NArg() < 2 {
+// in (after asking, unless --merge).
+func cmdLink(ctx context.Context, cmd *cli.Command) error {
+	merge, name := cmd.Bool("merge"), cmd.String("name")
+	if cmd.NArg() < 2 {
 		return errors.New("usage: " + linkUsage)
 	}
 	c, err := signedIn()
@@ -29,7 +28,7 @@ func cmdLink(args []string) error {
 		return err
 	}
 	var vms []vm
-	for _, ref := range fs.Args() {
+	for _, ref := range cmd.Args().Slice() {
 		v, err := findVM(c, ref)
 		if err != nil {
 			return err
@@ -48,7 +47,7 @@ func cmdLink(args []string) error {
 		Warning string `json:"warning"`
 	}
 	path := "/api/vms/" + url.PathEscape(vms[0].ID) + "/link"
-	err = c.do("POST", path, map[string]any{"with": with, "merge": *merge}, &resp)
+	err = c.do("POST", path, map[string]any{"with": with, "merge": merge}, &resp)
 	var ae *apiError
 	if errors.As(err, &ae) && ae.Status == http.StatusConflict && strings.Contains(ae.Message, "merge") {
 		var names []string
@@ -70,11 +69,11 @@ func cmdLink(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *name != "" {
-		if err := c.do("PATCH", "/api/links/"+strconv.FormatInt(resp.Network.ID, 10), map[string]string{"name": *name}, nil); err != nil {
+	if name != "" {
+		if err := c.do("PATCH", "/api/links/"+strconv.FormatInt(resp.Network.ID, 10), map[string]string{"name": name}, nil); err != nil {
 			return err
 		}
-		resp.Network.Name = *name
+		resp.Network.Name = name
 	}
 	if resp.Warning != "" {
 		fmt.Fprintln(os.Stderr, "Warning:", resp.Warning)
@@ -103,8 +102,8 @@ func printLinkMembers(c *client, network int64) error {
 }
 
 // cmdUnlink takes a VM out of its link network.
-func cmdUnlink(args []string) error {
-	c, v, err := vmArg(args, "qs unlink <vm>")
+func cmdUnlink(ctx context.Context, cmd *cli.Command) error {
+	c, v, err := vmArg(cmd.Args().Slice(), "qs unlink <vm>")
 	if err != nil {
 		return err
 	}

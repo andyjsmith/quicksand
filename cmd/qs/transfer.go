@@ -2,8 +2,8 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/urfave/cli/v3"
 	"golang.org/x/term"
 
 	"quicksand/internal/agentproto"
@@ -43,39 +44,30 @@ func guestBase(p string) string {
 	return name
 }
 
-func cmdDownload(args []string) error {
-	fs := flag.NewFlagSet("download", flag.ExitOnError)
-	recursive := fs.Bool("r", false, "download directories (as a .zip; see -u)")
-	extract := fs.Bool("u", false, "with -r, extract directories into LOCALPATH instead of saving a .zip")
-	password := fs.String("e", "", "download as a zip encrypted (ZipCrypto) with this `password`; - asks for it")
-	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: qs download [-r [-u]] [-e password] <vm> <remote path> [local path]")
-		fs.PrintDefaults()
-	}
-	fs.Parse(reorder(args, map[string]bool{"e": true}))
-	encrypt := false
-	fs.Visit(func(f *flag.Flag) { encrypt = encrypt || f.Name == "e" })
+func cmdDownload(ctx context.Context, cmd *cli.Command) error {
+	recursive, extract := cmd.Bool("r"), cmd.Bool("u")
+	password, encrypt := cmd.String("e"), cmd.IsSet("e")
+	args := cmd.Args().Slice()
 	switch {
-	case fs.NArg() < 2 || fs.NArg() > 3:
-		fs.Usage()
-		os.Exit(2)
-	case encrypt && *password == "":
+	case len(args) < 2 || len(args) > 3:
+		return errors.New("usage: qs download [-r [-u]] [-e password] <vm> <remote path> [local path]")
+	case encrypt && password == "":
 		return errors.New("-e needs a password")
-	case *extract && !*recursive:
+	case extract && !recursive:
 		return errors.New("-u extracts directories, so it needs -r")
-	case *extract && encrypt:
+	case extract && encrypt:
 		return errors.New("-u and -e can't be combined: extracting would leave nothing encrypted")
 	}
-	if *password == "-" {
+	if password == "-" {
 		var err error
-		if *password, err = promptNewPassword("Zip password"); err != nil {
+		if password, err = promptNewPassword("Zip password"); err != nil {
 			return err
 		}
 	}
-	vmRef, remote := fs.Arg(0), fs.Arg(1)
+	vmRef, remote := args[0], args[1]
 	local := "."
-	if fs.NArg() == 3 {
-		local = fs.Arg(2)
+	if len(args) == 3 {
+		local = args[2]
 	}
 	c, err := signedIn()
 	if err != nil {
@@ -90,7 +82,7 @@ func cmdDownload(args []string) error {
 	// Directories list; files don't.
 	var list agentproto.FileList
 	isDir := c.do("GET", base+"/files?"+url.Values{"path": {remote}}.Encode(), nil, &list) == nil
-	if isDir && !*recursive {
+	if isDir && !recursive {
 		return fmt.Errorf("%s is a directory; use -r", remote)
 	}
 	if isDir {
@@ -103,7 +95,7 @@ func cmdDownload(args []string) error {
 		var prep struct {
 			URL string `json:"url"`
 		}
-		if err := c.do("POST", base+"/files/zip", map[string]string{"path": remote, "password": *password}, &prep); err != nil {
+		if err := c.do("POST", base+"/files/zip", map[string]string{"path": remote, "password": password}, &prep); err != nil {
 			return err
 		}
 		resp, err = c.send("GET", prep.URL, nil, 0, "")
@@ -120,7 +112,7 @@ func cmdDownload(args []string) error {
 	body := newProgress(resp.Body, name, resp.ContentLength)
 	defer body.done()
 
-	if *extract {
+	if extract {
 		dest := local
 		if info, err := os.Stat(local); err == nil && info.IsDir() {
 			dest = filepath.Join(local, guestBase(remote))
@@ -197,22 +189,15 @@ func writeFileAtomic(path string, r io.Reader) error {
 	return err
 }
 
-func cmdUpload(args []string) error {
-	fs := flag.NewFlagSet("upload", flag.ExitOnError)
-	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: qs upload <vm> <local file> [remote path]")
-		fmt.Fprintln(os.Stderr, "       qs upload <vm> <local file>... <remote path>")
-		fs.PrintDefaults()
-	}
-	fs.Parse(args)
-	if fs.NArg() < 2 {
-		fs.Usage()
-		os.Exit(2)
+func cmdUpload(ctx context.Context, cmd *cli.Command) error {
+	args := cmd.Args().Slice()
+	if len(args) < 2 {
+		return errors.New("usage: qs upload <vm> <local file> [remote path]\n       qs upload <vm> <local file>... <remote path>")
 	}
 	// Without a remote path, one file goes to the files directory ("").
-	vmRef, sources, remote := fs.Arg(0), fs.Args()[1:2], ""
-	if fs.NArg() > 2 {
-		sources, remote = fs.Args()[1:fs.NArg()-1], fs.Arg(fs.NArg()-1)
+	vmRef, sources, remote := args[0], args[1:2], ""
+	if len(args) > 2 {
+		sources, remote = args[1:len(args)-1], args[len(args)-1]
 	}
 	for _, src := range sources {
 		info, err := os.Stat(src)

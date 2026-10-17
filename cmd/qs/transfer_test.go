@@ -39,22 +39,22 @@ func TestUploadDownload(t *testing.T) {
 	writeTree(t, local, map[string][]byte{"a.txt": []byte("alpha"), "big.bin": big})
 
 	// Into the files directory, keeping names; then to a new name.
-	if err := cmdUpload([]string{"vm1", filepath.Join(local, "a.txt"), filepath.Join(local, "big.bin"), "."}); err != nil {
+	if err := runQS("upload", "vm1", filepath.Join(local, "a.txt"), filepath.Join(local, "big.bin"), "."); err != nil {
 		t.Fatal(err)
 	}
 	// Without a remote path, into the files directory.
 	os.WriteFile(filepath.Join(local, "c.txt"), []byte("gamma"), 0o644)
-	if err := cmdUpload([]string{"vm1", filepath.Join(local, "c.txt")}); err != nil {
+	if err := runQS("upload", "vm1", filepath.Join(local, "c.txt")); err != nil {
 		t.Fatal(err)
 	}
 	checkTree(t, guest, map[string][]byte{"c.txt": []byte("gamma")})
-	if err := cmdUpload([]string{"vm1", filepath.Join(local, "a.txt"), "renamed.txt"}); err != nil {
+	if err := runQS("upload", "vm1", filepath.Join(local, "a.txt"), "renamed.txt"); err != nil {
 		t.Fatal(err)
 	}
 	checkTree(t, guest, map[string][]byte{"a.txt": []byte("alpha"), "big.bin": big, "renamed.txt": []byte("alpha")})
 	// Overwrites, like scp.
 	os.WriteFile(filepath.Join(local, "a.txt"), []byte("beta"), 0o644)
-	if err := cmdUpload([]string{"vm1", filepath.Join(local, "a.txt"), "a.txt"}); err != nil {
+	if err := runQS("upload", "vm1", filepath.Join(local, "a.txt"), "a.txt"); err != nil {
 		t.Fatal(err)
 	}
 	checkTree(t, guest, map[string][]byte{"a.txt": []byte("beta")})
@@ -63,28 +63,28 @@ func TestUploadDownload(t *testing.T) {
 		{"vm1", local, "."},                        // a directory
 		{"vm1", filepath.Join(local, "nope"), "."}, // a missing file
 	} {
-		if err := cmdUpload(args); err == nil {
+		if err := runQS(append([]string{"upload"}, args...)...); err == nil {
 			t.Errorf("upload %q succeeded", args)
 		}
 	}
 
 	// Files: into a directory, to a name, and into the current directory.
 	out := t.TempDir()
-	if err := cmdDownload([]string{"vm1", "big.bin", out}); err != nil {
+	if err := runQS("download", "vm1", "big.bin", out); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdDownload([]string{"vm1", "a.txt", filepath.Join(out, "copy.txt")}); err != nil {
+	if err := runQS("download", "vm1", "a.txt", filepath.Join(out, "copy.txt")); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(out)
-	if err := cmdDownload([]string{"vm1", "renamed.txt"}); err != nil {
+	if err := runQS("download", "vm1", "renamed.txt"); err != nil {
 		t.Fatal(err)
 	}
 	checkTree(t, out, map[string][]byte{"big.bin": big, "copy.txt": []byte("beta"), "renamed.txt": []byte("alpha")})
 	if _, err := os.Stat(filepath.Join(out, "big.bin.qs-part")); err == nil {
 		t.Error("a .qs-part file was left behind")
 	}
-	if err := cmdDownload([]string{"vm1", "missing", out}); err == nil {
+	if err := runQS("download", "vm1", "missing", out); err == nil {
 		t.Error("downloaded a missing file")
 	}
 }
@@ -98,11 +98,11 @@ func TestDownloadDirectories(t *testing.T) {
 	os.MkdirAll(filepath.Join(guest, "proj", "emptydir"), 0o755)
 	out := t.TempDir()
 
-	if err := cmdDownload([]string{"vm1", "proj", out}); err == nil || !strings.Contains(err.Error(), "-r") {
+	if err := runQS("download", "vm1", "proj", out); err == nil || !strings.Contains(err.Error(), "-r") {
 		t.Errorf("directory without -r: %v", err)
 	}
 	// -r: a zip.
-	if err := cmdDownload([]string{"-r", "vm1", "proj", out}); err != nil {
+	if err := runQS("download", "-r", "vm1", "proj", out); err != nil {
 		t.Fatal(err)
 	}
 	zr, err := zip.OpenReader(filepath.Join(out, "proj.zip"))
@@ -114,23 +114,23 @@ func TestDownloadDirectories(t *testing.T) {
 	}
 	zr.Close()
 	// -r -u: extracted into out/proj, or into a new directory by name.
-	if err := cmdDownload([]string{"-r", "-u", "vm1", "proj", out}); err != nil {
+	if err := runQS("download", "-r", "-u", "vm1", "proj", out); err != nil {
 		t.Fatal(err)
 	}
 	checkTree(t, filepath.Join(out, "proj"), tree)
 	if info, err := os.Stat(filepath.Join(out, "proj", "emptydir")); err != nil || !info.IsDir() {
 		t.Errorf("empty directory not extracted: %v", err)
 	}
-	if err := cmdDownload([]string{"-r", "-u", "vm1", "proj", filepath.Join(out, "renamed")}); err != nil {
+	if err := runQS("download", "-r", "-u", "vm1", "proj", filepath.Join(out, "renamed")); err != nil {
 		t.Fatal(err)
 	}
 	checkTree(t, filepath.Join(out, "renamed"), tree)
 
 	// -e: an encrypted zip, of a file or (with -r) a directory.
-	if err := cmdDownload([]string{"-e", "s3cret", "vm1", "proj/a.txt", out}); err != nil {
+	if err := runQS("download", "-e", "s3cret", "vm1", "proj/a.txt", out); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdDownload([]string{"vm1", "proj", out, "-r", "-e", "s3cret"}); err != nil {
+	if err := runQS("download", "vm1", "proj", out, "-r", "-e", "s3cret"); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"a.txt.zip", "proj.zip"} {
@@ -151,7 +151,7 @@ func TestDownloadDirectories(t *testing.T) {
 		{"-u", "vm1", "proj", out},
 		{"-r", "-u", "-e", "pw", "vm1", "proj", out},
 	} {
-		if err := cmdDownload(args); err == nil {
+		if err := runQS(append([]string{"download"}, args...)...); err == nil {
 			t.Errorf("download %q succeeded", args)
 		}
 	}
@@ -178,7 +178,7 @@ func TestDir(t *testing.T) {
 	_, guest := startServer(t)
 	writeTree(t, guest, map[string][]byte{"a.txt": []byte("alpha"), "sub/b.txt": []byte("beta!")})
 	var err error
-	out, _ := capture(t, "", func() { err = cmdDir([]string{"vm1"}) })
+	out, _ := capture(t, "", func() { err = runQS("dir", "vm1") })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,11 +187,11 @@ func TestDir(t *testing.T) {
 		!strings.HasSuffix(out, "1 folder, 1 file, 5 bytes\n") {
 		t.Errorf("listing:\n%s", out)
 	}
-	out, _ = capture(t, "", func() { err = cmdDir([]string{"vm1", "sub"}) })
+	out, _ = capture(t, "", func() { err = runQS("dir", "vm1", "sub") })
 	if err != nil || !strings.Contains(out, "b.txt") || strings.Contains(out, "a.txt") {
 		t.Errorf("sub: %v\n%s", err, out)
 	}
-	if err := cmdDir([]string{"vm1", "missing"}); err == nil {
+	if err := runQS("dir", "vm1", "missing"); err == nil {
 		t.Error("listed a missing directory")
 	}
 }

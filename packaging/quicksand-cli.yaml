@@ -18,3 +18,14 @@ contents:
     dst: /usr/bin/qs
     file_info:
       mode: 0755
+  # Shell completion, from "qs completion <shell>".
+  - src: dist/packaging/qs.bash
+    dst: /usr/share/bash-completion/completions/qs
+  - src: dist/packaging/qs.fish
+    dst: /usr/share/fish/vendor_completions.d/qs.fish
+  - src: dist/packaging/_qs
+    dst: /usr/share/zsh/vendor-completions/_qs
+    packager: deb
+  - src: dist/packaging/_qs
+    dst: /usr/share/zsh/site-functions/_qs
+    packager: rpm
