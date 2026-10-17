@@ -1,0 +1,16 @@
+Template: quicksand-agent/key
+Type: string
+Default:
+Description: Quicksand server's public key:
+ The agent only accepts connections from the Quicksand server with this key
+ ("ed25519:..."). It is on Quicksand's Admin page, or run
+ "quicksand agent pubkey" on the server.
+ .
+ Leave it empty to configure the agent later with
+ "quicksand-agent install -key ...".
+
+Template: quicksand-agent/subnet
+Type: string
+Default: 10.99.0.0/24
+Description: Agent network:
+ The agent network's subnet, as in Quicksand's configuration.

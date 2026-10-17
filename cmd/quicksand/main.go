@@ -25,17 +25,29 @@ import (
 )
 
 const usage = `Usage:
-  quicksand [serve] [-config config.json] [-debug]
-  quicksand user add [-config config.json] [-admin] <username>
-  quicksand user passwd [-config config.json] <username>
-  quicksand user delete [-config config.json] <username>
-  quicksand user list [-config config.json]
+  quicksand [serve] [-config path] [-debug]
+  quicksand user add [-config path] [-admin] <username>
+  quicksand user passwd [-config path] <username>
+  quicksand user delete [-config path] <username>
+  quicksand user list [-config path]
   quicksand agent keygen
-  quicksand agent pubkey [-config config.json]
-  quicksand agent info [-config config.json] <host[:port]>
-  quicksand agent exec [-config config.json] [-timeout 60] <host[:port]> -- <command> [args...]
-  quicksand agent exec [-config config.json] [-timeout 60] -shell '<command line>' <host[:port]>
+  quicksand agent pubkey [-config path]
+  quicksand agent info [-config path] <host[:port]>
+  quicksand agent exec [-config path] [-timeout 60] <host[:port]> -- <command> [args...]
+  quicksand agent exec [-config path] [-timeout 60] -shell '<command line>' <host[:port]>
+
+Without -config, the configuration is config.json in the current directory,
+or /etc/quicksand/config.json if there is none.
 `
+
+// defaultConfig is the configuration file used without -config: config.json
+// in the current directory if there is one, otherwise the packaged location.
+func defaultConfig() string {
+	if _, err := os.Stat("config.json"); err == nil {
+		return "config.json"
+	}
+	return "/etc/quicksand/config.json"
+}
 
 func main() {
 	args := os.Args[1:]
@@ -60,7 +72,7 @@ func main() {
 
 func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	configPath := fs.String("config", "config.json", "path to the configuration file")
+	configPath := fs.String("config", defaultConfig(), "path to the configuration file")
 	debug := fs.Bool("debug", false, "enable debug logging")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	fs.Parse(args)
@@ -165,7 +177,7 @@ func userCommand(args []string) error {
 	}
 	sub, args := args[0], args[1:]
 	fs := flag.NewFlagSet("user "+sub, flag.ExitOnError)
-	configPath := fs.String("config", "config.json", "path to the configuration file")
+	configPath := fs.String("config", defaultConfig(), "path to the configuration file")
 	admin := fs.Bool("admin", false, "make the user an administrator")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	fs.Parse(args)

@@ -29,7 +29,7 @@ func agentCommand(args []string) error {
 	sub, args := args[0], args[1:]
 	fs := flag.NewFlagSet("agent "+sub, flag.ExitOnError)
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage) }
-	configPath := fs.String("config", "config.json", "path to the configuration file")
+	configPath := fs.String("config", defaultConfig(), "path to the configuration file")
 
 	if sub == "keygen" {
 		fs.Parse(args)

@@ -1,0 +1,16 @@
+[Unit]
+Description=Quicksand guest agent
+Documentation=https://github.com/andyjsmith/quicksand/blob/main/docs/agent.md
+After=network-pre.target
+Wants=network-pre.target
+# Written by "quicksand-agent install -key ..." (or the .deb's prompt).
+ConditionPathExists=/etc/quicksand-agent/config.json
+
+[Service]
+# Root is needed to configure the agent network interface.
+ExecStart=/usr/bin/quicksand-agent -config /etc/quicksand-agent/config.json
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

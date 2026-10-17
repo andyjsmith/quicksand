@@ -1,0 +1,37 @@
+# nFPM configuration for the guest agent package; built by
+# scripts/build-packages.sh.
+name: quicksand-agent
+arch: ${ARCH}
+platform: linux
+version: ${PKG_VERSION}
+version_schema: semver
+section: admin
+maintainer: Andy Smith <andy@ajsmith.org>
+homepage: https://github.com/andyjsmith/quicksand
+description: |-
+  Quicksand guest agent
+  Runs inside Quicksand VM templates and gives the Quicksand server a
+  terminal, file transfers, process lists and display resizing in the guest.
+
+contents:
+  - src: dist/packaging/quicksand-agent
+    dst: /usr/bin/quicksand-agent
+    file_info:
+      mode: 0755
+  - src: packaging/agent/quicksand-agent.service
+    dst: /usr/lib/systemd/system/quicksand-agent.service
+
+scripts:
+  postinstall: packaging/agent/postinstall.sh
+  preremove: packaging/agent/preremove.sh
+  postremove: packaging/agent/postremove.sh
+
+overrides:
+  deb:
+    depends:
+      - debconf (>= 0.5) | debconf-2.0
+
+deb:
+  scripts:
+    templates: packaging/agent/templates
+    config: packaging/agent/config.sh

@@ -1,7 +1,8 @@
 # Builds the server (with the web client embedded), the guest agent and the
-# qs CLI on every push to any branch. Pull requests from branches in this
-# repository show those runs' results. Pushing a version tag (v1.2.3,
-# v1.2.3-rc.1) also creates a GitHub release for the tag with the binaries.
+# qs CLI, as binaries and .deb/.rpm packages, on every push to any branch.
+# Pull requests from branches in this repository show those runs' results.
+# Pushing a version tag (v1.2.3, v1.2.3-rc.1) also creates a GitHub release
+# for the tag with the binaries and packages.
 name: CI
 
 on:
@@ -67,6 +68,12 @@ jobs:
           name: bin-server
           path: dist/quicksand-server-linux-amd64.tar.gz
           retention-days: 7
+      - run: ./scripts/build-packages.sh server
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-server
+          path: dist/packages
+          retention-days: 7
 
   agent:
     runs-on: ubuntu-latest
@@ -81,6 +88,12 @@ jobs:
           name: bin-agent
           path: dist/agent
           retention-days: 7
+      - run: ./scripts/build-packages.sh agent
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-agent
+          path: dist/packages
+          retention-days: 7
 
   cli:
     runs-on: ubuntu-latest
@@ -94,6 +107,12 @@ jobs:
         with:
           name: bin-cli
           path: dist/cli
+          retention-days: 7
+      - run: ./scripts/build-packages.sh cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-cli
+          path: dist/packages
           retention-days: 7
 
   # The release notes are the tag's message, if any, and the commits since
@@ -114,6 +133,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: bin-*
+          path: release
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-*
           path: release
           merge-multiple: true
       - name: Checksums

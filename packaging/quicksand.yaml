@@ -1,0 +1,33 @@
+# nFPM configuration for the server package; built by scripts/build-packages.sh.
+name: quicksand
+arch: ${ARCH}
+platform: linux
+version: ${PKG_VERSION}
+version_schema: semver
+section: admin
+maintainer: Andy Smith <andy@ajsmith.org>
+homepage: https://github.com/andyjsmith/quicksand
+description: |-
+  Self-service sandbox VMs on Proxmox VE
+  The Quicksand server, with the web client embedded. Configure it in
+  /etc/quicksand/config.json.
+
+depends:
+  - openssl
+
+contents:
+  - src: dist/server/quicksand
+    dst: /usr/bin/quicksand
+    file_info:
+      mode: 0755
+  - src: dist/packaging/quicksand.service
+    dst: /usr/lib/systemd/system/quicksand.service
+  - src: config.example.json
+    dst: /usr/share/doc/quicksand/config.example.json
+  - src: config.schema.json
+    dst: /usr/share/doc/quicksand/config.schema.json
+
+scripts:
+  postinstall: packaging/server/postinstall.sh
+  preremove: packaging/server/preremove.sh
+  postremove: packaging/server/postremove.sh

@@ -5,6 +5,36 @@ systemd, on a Debian-like host that can reach the Proxmox API (8006) and
 SPICE proxy (3128). If you use the agent, the host also needs its NIC on the
 agent network ([proxmox-setup.md](proxmox-setup.md#64-the-quicksand-host)).
 
+## Install from a package
+
+Releases on the [releases page](https://github.com/andyjsmith/quicksand/releases) include `quicksand` packages for
+Debian/Ubuntu (.deb) and Fedora/RHEL (.rpm), for amd64:
+
+```sh
+sudo apt install ./quicksand_1.2.0_amd64.deb
+sudo dnf install ./quicksand-1.2.0-1.x86_64.rpm
+```
+
+The package installs `/usr/bin/quicksand` and `quicksand.service`, and on
+first install does what the installer below does: the `quicksand` user,
+`/etc/quicksand`, `/var/lib/quicksand` and a self-signed certificate. The
+example configuration and schema are in `/usr/share/doc/quicksand/`. Write
+`/etc/quicksand/config.json` as described under "Install or upgrade" below,
+then:
+
+```sh
+sudo systemctl enable --now quicksand
+```
+
+Upgrading the package restarts the service. Removing it stops the service;
+purging the .deb also deletes `/etc/quicksand`, but the database in
+`/var/lib/quicksand` is kept. The `quicksand` command uses
+`/etc/quicksand/config.json` unless there is a `config.json` in the current
+directory or you pass `-config`.
+
+To build the packages yourself, run `./scripts/build-packages.sh` after
+the build scripts; it writes `dist/packages/`.
+
 ## Build
 
 On a machine with Go and Node.js:

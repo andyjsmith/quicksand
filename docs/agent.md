@@ -29,7 +29,41 @@ replace or impersonate the agent within its own VM.
 
 ## Installing in a template
 
-Build the agent (on any machine with Go):
+### From a package (Linux)
+
+Releases on the [releases page](https://github.com/andyjsmith/quicksand/releases) include `quicksand-agent` packages
+(.deb and .rpm, amd64 and arm64). The .deb asks for the server's public key
+and the agent network's subnet, then configures and starts the agent:
+
+```sh
+sudo apt install ./quicksand-agent_1.2.0_amd64.deb
+```
+
+For an unattended install, give the answers beforehand:
+
+```sh
+echo 'quicksand-agent quicksand-agent/key string ed25519:<server public key>' | sudo debconf-set-selections
+echo 'quicksand-agent quicksand-agent/subnet string 10.99.0.0/24' | sudo debconf-set-selections
+```
+
+`sudo dpkg-reconfigure quicksand-agent` asks again. The .rpm can't ask, so
+configure the agent after installing it:
+
+```sh
+sudo dnf install ./quicksand-agent-1.2.0-1.x86_64.rpm
+sudo quicksand-agent install -key 'ed25519:<server public key>'
+```
+
+With the package installed, `quicksand-agent install` only writes
+`/etc/quicksand-agent/config.json` and restarts the service; the package
+provides `/usr/bin/quicksand-agent` and the systemd unit, and upgrades
+restart the agent. If systemd isn't running (customizing an image offline),
+the agent is enabled and starts on the next boot. The NetworkManager and
+firewall notes below apply too.
+
+### From the binary
+
+Build the agent (on any machine with Go), or take the binary from a release:
 
 ```sh
 ./scripts/build-agent.sh        # writes dist/agent/

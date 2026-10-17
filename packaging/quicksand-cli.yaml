@@ -1,0 +1,20 @@
+# nFPM configuration for the qs command-line client package; built by
+# scripts/build-packages.sh.
+name: quicksand-cli
+arch: ${ARCH}
+platform: linux
+version: ${PKG_VERSION}
+version_schema: semver
+section: utils
+maintainer: Andy Smith <andy@ajsmith.org>
+homepage: https://github.com/andyjsmith/quicksand
+description: |-
+  Quicksand command-line client (qs)
+  Deploys and manages Quicksand sandbox VMs from a terminal: power,
+  snapshots, shells, exec, file transfers and port forwarding.
+
+contents:
+  - src: dist/packaging/qs
+    dst: /usr/bin/qs
+    file_info:
+      mode: 0755

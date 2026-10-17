@@ -1,7 +1,9 @@
 # qs, the command-line client
 
 `qs` talks to a Quicksand server's API as a signed-in user. It's a single
-binary with no dependencies; build it for common platforms with
+binary with no dependencies. Download it from the [releases page](https://github.com/andyjsmith/quicksand/releases)
+(binaries for Linux, macOS and Windows, and `quicksand-cli` .deb and .rpm
+packages for Linux), or build it for common platforms with
 `./scripts/build-cli.sh` (writes `dist/cli/`).
 
 ## Signing in

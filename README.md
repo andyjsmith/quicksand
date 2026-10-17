@@ -85,23 +85,26 @@ build. In short:
 1. **Set up Proxmox:** an API token, a resource pool, your templates, the
    networks users can pick and, if you want the agent, its isolated network.
    [docs/proxmox-setup.md](docs/proxmox-setup.md) walks through all of it.
-2. **Build and install the server:** `./scripts/build-server.sh` produces
-   `dist/server/`, with an installer that sets up a systemd service, a
-   locked-down user and a self-signed certificate.
-   [docs/deploy.md](docs/deploy.md) has the details.
-3. **Configure it:** start from [config.example.json](config.example.json).
+2. **Install the server:** install the `quicksand` .deb or .rpm from the
+   [releases page](https://github.com/andyjsmith/quicksand/releases), or build it with `./scripts/build-server.sh`.
+   Either way you get a systemd service, a locked-down user and a
+   self-signed certificate. [docs/deploy.md](docs/deploy.md) has the details.
+3. **Configure it** in `/etc/quicksand/config.json`: start from
+   [config.example.json](config.example.json).
    [config.schema.json](config.schema.json) documents every setting, and editors
    like VS Code autocomplete from it if you keep the `$schema` line.
 4. **Create the first admin:**
 
    ```sh
-   sudo -u quicksand quicksand user add -config /etc/quicksand/config.json -admin yourname
+   sudo -u quicksand quicksand user add -admin yourname
    ```
 
    After that, users are managed from the Admin page.
-5. **Install the agent in your templates** (optional): `./scripts/build-agent.sh`,
-   then run `quicksand-agent install -key '<server public key>'` inside the
-   template. See [docs/agent.md](docs/agent.md).
+5. **Install the agent in your templates** (optional): on Linux, install the
+   `quicksand-agent` .deb or .rpm package. Otherwise, use the binary from a
+   release or `./scripts/build-agent.sh`, and run
+   `quicksand-agent install -key '<server public key>'` inside the template.
+   See [docs/agent.md](docs/agent.md).
 
 ## Hacking on it
 
@@ -136,11 +139,12 @@ git tag -a v1.2.0 -m "Short summary of the release"
 git push origin v1.2.0
 ```
 
-The tag's workflow creates a GitHub release with the binaries and
+The tag's workflow creates a GitHub release with the binaries, the .deb and
+.rpm packages (`./scripts/build-packages.sh` builds them locally) and
 `SHA256SUMS`. The release notes are the tag's message followed by the
 commits since the previous tag. Tags with a suffix (`v1.2.0-rc.1`) become
-pre-releases. The newest release's files are always at
-`/releases/latest/download/<file>`. Create releases by pushing tags, not from
+pre-releases. The newest release's binaries are always at
+`/releases/latest/download/<file>` (package names include the version). Create releases by pushing tags, not from
 GitHub's "Draft a new release" page: the workflow creates the release itself.
 
 Layout:
