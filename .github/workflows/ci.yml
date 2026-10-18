@@ -1,6 +1,7 @@
 # Builds the server (with the web client embedded), the guest agent and the
 # qs CLI, as binaries and .deb/.rpm packages, and the browser extension, on
-# every push to any branch.
+# every push to any branch, and publishes the server's container image from
+# main and version tags.
 # Pull requests from branches in this repository show those runs' results.
 # Pushing a version tag (v1.2.3, v1.2.3-rc.1) also creates a GitHub release
 # for the tag with the binaries, packages and extension.
@@ -128,6 +129,56 @@ jobs:
           name: bin-extension
           path: dist/extension/*.zip
           retention-days: 7
+
+  # Publishes the server image (see Dockerfile) to ghcr.io, made from the
+  # server job's binary: as "main" from main, and from version tags as the
+  # version, plus "1.2" and "latest" for releases (not prereleases).
+  docker:
+    if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
+    needs: [test, server]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-server
+          path: dist
+      - run: mkdir -p dist/server && tar -xzf dist/quicksand-server-linux-amd64.tar.gz -C dist/server --strip-components=1
+      - name: Tags
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_TYPE" = tag ]; then
+            version=${REF_NAME#v}
+            tags="$version"
+            case "$version" in
+            *-*) ;;
+            *) tags="$tags ${version%.*} latest" ;;
+            esac
+          else
+            version=$(git describe --tags --always 2>/dev/null || echo "$GITHUB_SHA")
+            tags=main
+          fi
+          echo "VERSION=$version" >>"$GITHUB_ENV"
+          echo "TAGS=$tags" >>"$GITHUB_ENV"
+          echo "$tags"
+      - name: Log in to ghcr.io
+        env:
+          TOKEN: ${{ github.token }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build and push
+        run: |
+          image=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          set --
+          for tag in $TAGS; do set -- "$@" -t "$image:$tag"; done
+          docker build --build-arg VERSION="$VERSION" "$@" .
+          for tag in $TAGS; do docker push "$image:$tag"; done
 
   # The release notes are the tag's message, if any, and the commits since
   # the previous tag.

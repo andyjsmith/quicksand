@@ -98,7 +98,8 @@ build. In short:
 2. **Install the server:** install the `quicksand` .deb or .rpm from the
    [releases page](https://github.com/andyjsmith/quicksand/releases), or build it with `./scripts/build-server.sh`.
    Either way you get a systemd service, a locked-down user and a
-   self-signed certificate. [docs/deploy.md](docs/deploy.md) has the details.
+   self-signed certificate. Or run the `ghcr.io/andyjsmith/quicksand` image
+   with [compose.yml](compose.yml). [docs/deploy.md](docs/deploy.md) has the details.
 3. **Configure it** in `/etc/quicksand/config.json`: start from
    [config.example.json](config.example.json).
    [config.schema.json](config.schema.json) documents every setting, and editors

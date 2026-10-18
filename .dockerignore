@@ -1,0 +1,4 @@
+# The image only needs the server binary (see Dockerfile). Everything else,
+# including local configuration and credentials, stays out of the build.
+*
+!dist/server/quicksand

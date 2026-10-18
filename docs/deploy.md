@@ -1,7 +1,7 @@
 # Deploying Quicksand
 
 Quicksand runs as a single binary (the web client is embedded) under
-systemd, on a Debian-like host that can reach the Proxmox API (8006) and
+systemd or in Docker, on a Debian-like host that can reach the Proxmox API (8006) and
 SPICE proxy (3128). If you use the agent, the host also needs its NIC on the
 agent network ([proxmox-setup.md](proxmox-setup.md#64-the-quicksand-host)).
 
@@ -34,6 +34,52 @@ directory or you pass `-config`.
 
 To build the packages yourself, run `./scripts/build-packages.sh` after
 the build scripts; it writes `dist/packages/`.
+
+## Run in Docker
+
+The server is also published as an image, `ghcr.io/andyjsmith/quicksand`:
+`latest` and the version (e.g. `1.2.0` or `1.2`) for releases, and `main`
+for the newest commit on main. [compose.yml](../compose.yml) runs it:
+
+```sh
+mkdir -p quicksand/config && cd quicksand
+curl -LO https://raw.githubusercontent.com/andyjsmith/quicksand/main/compose.yml
+# write config/config.json (see "Install or upgrade" below), then:
+docker compose up -d
+docker compose exec quicksand quicksand user add -admin <username>
+```
+
+`./config` is mounted at `/etc/quicksand`, read-only: `config.json`, the
+template `icons` folder next to it, and any TLS certificate. The server runs
+as user ID 10001, which needs to be able to read them. The database is kept
+in the `data` volume, at `/var/lib/quicksand` (the default `"database":
+"quicksand.db"` puts it there).
+
+Some differences from the packages:
+
+- **Listen address.** The container needs `"listen": ":8484"` (or this
+  host's address) rather than `127.0.0.1`. Ports below 1024 aren't
+  available to its user, so serve on 8484, or put a reverse proxy in front.
+- **Agent network.** The compose file uses host networking, so Quicksand
+  connects to agents from the host's own address on the agent network,
+  `agent.network.serverIP`, exactly as an installed server would. Configure
+  that address on the host as for any Quicksand host
+  ([proxmox-setup.md](proxmox-setup.md#64-the-quicksand-host)). Without the
+  agent, `ports: ["8484:8484"]` can replace `network_mode: host`.
+- **HTTPS.** No certificate is generated. Add one to `./config` and a `tls`
+  section pointing at it (`/etc/quicksand/tls.crt` and `tls.key`), or
+  make a self-signed one with:
+
+  ```sh
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 825 \
+    -subj "/CN=$(hostname)" -addext "subjectAltName=DNS:$(hostname)" \
+    -keyout config/tls.key -out config/tls.crt
+  ```
+
+Upgrade with `docker compose pull && docker compose up -d`. Logs are in
+`docker compose logs -f`. To build the image yourself, run
+`./scripts/build-server.sh && docker build -t quicksand .`: it packages the
+binary that builds, as CI does.
 
 ## Build
 
