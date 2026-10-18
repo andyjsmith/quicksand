@@ -3,7 +3,7 @@
 The extension adds **Open in Quicksand** to the right-click menu of links in
 Chrome (and other Chromium browsers, such as Edge and Brave) and Firefox. It
 opens the link in a new VM of an [app template](app-templates.md) that opens
-links, such as Chrome or Firefox in a throwaway VM, or in a new tab of one
+links (chosen when you open it), such as Chrome or Firefox in a throwaway VM, or in a new tab of one
 you already have running, so the page never runs on your own computer.
 
 ## Installing
@@ -31,9 +31,10 @@ toolbar, then the extension's ⋮ menu and **Options**; in Firefox,
 `about:addons`, then the extension's **Preferences**) and enter:
 
 - **Quicksand address**, e.g. `https://quicksand.example`.
-- **Template ID**: the template links open in, which must open links. IDs
-  are shown next to template names on Quicksand's dashboard, with
-  "Opens links" on those that can.
+- **Template ID** (optional): the template chosen to start with, which must
+  open links. IDs are shown next to template names on Quicksand's dashboard,
+  with "Opens links" on those that can. Without it, it's the one you opened
+  a link in last. Either way, it can be changed before opening each link.
 - **Network ID** (optional): the network chosen to start with. Without it,
   it's Quicksand's default network. Either way, it can be changed before
   opening each link.
@@ -52,8 +53,8 @@ https://quicksand.example/open?template=chrome&url=https%3A%2F%2Fexample.com%2F&
 
 That page runs as you, in your normal Quicksand session; if you aren't
 signed in, Quicksand has you sign in first and then carries on. It shows the
-link and, by default, deploys a **New VM** of the template on the network
-shown (which you can change); choose **Existing VM** to open it in a new tab
+link and, by default, deploys a **New VM** of the template and on the
+network shown (both of which you can change); choose **Existing VM** to open it in a new tab
 of one of your running VMs that open links instead. Nothing happens until
 you click **Open** (or press Enter). Then it shows the VM's console, which
 for a new VM follows the deployment and connects when it's up. It asks first

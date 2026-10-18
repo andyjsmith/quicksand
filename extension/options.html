@@ -9,11 +9,12 @@
     <form id="form">
       <label for="baseURL">Quicksand address</label>
       <input id="baseURL" type="url" placeholder="https://quicksand.example" required />
-      <label for="template">Template ID</label>
-      <input id="template" type="text" placeholder="chrome" required spellcheck="false" />
+      <label for="template">Template ID <span class="optional">(optional)</span></label>
+      <input id="template" type="text" placeholder="Choose each time" spellcheck="false" />
       <p class="hint">
-        The template links open in. It must be one that opens links; template IDs are shown next to their names on
-        Quicksand's dashboard.
+        The template chosen to start with, which must be one that opens links; template IDs are shown next to their
+        names on Quicksand's dashboard. Without it, it's the one you used last. Either way, it can be changed before
+        opening each link.
       </p>
       <label for="network">Network ID <span class="optional">(optional)</span></label>
       <input id="network" type="text" placeholder="Quicksand's default" spellcheck="false" />

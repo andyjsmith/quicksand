@@ -1,6 +1,7 @@
 // Adds "Open in Quicksand" to the menu of links. It opens Quicksand's /open
 // page for the link in a new tab, which (once the user is signed in and
-// confirms) deploys a VM of the configured template to open the link in.
+// confirms) deploys a VM to open the link in, of the template chosen there
+// (the configured one, if any, to start with).
 // The extension never talks to Quicksand itself.
 
 const MENU_ID = 'open-in-quicksand'
@@ -26,11 +27,12 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // openLink opens Quicksand's /open page for a link, next to tab.
 async function openLink(linkUrl, tab) {
   const { baseURL, template, network } = await chrome.storage.sync.get(['baseURL', 'template', 'network'])
-  if (!baseURL || !template) {
+  if (!baseURL) {
     chrome.runtime.openOptionsPage()
     return
   }
-  const params = new URLSearchParams({ template, url: linkUrl })
+  const params = new URLSearchParams({ url: linkUrl })
+  if (template) params.set('template', template)
   if (network) params.set('network', network)
   const page = new URL('/open', baseURL)
   page.search = params.toString()

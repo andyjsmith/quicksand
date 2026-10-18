@@ -13,22 +13,24 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { formatMemory } from '@/lib/format'
 
-// /open?template=ID&url=URL[&network=ID] opens the URL, e.g. from the
-// "Open in Quicksand" browser extension: in a new VM of the template, on the
-// network given (or chosen here), or in one of the user's running VMs that
-// opens links. It asks first: any site could send someone here, and
+// /open?url=URL[&template=ID][&network=ID] opens the URL, e.g. from the
+// "Open in Quicksand" browser extension: in a new VM of a template that opens
+// links, on a network (both preselected from the query if given, and chosen
+// here), or in one of the user's running VMs that opens links. It asks first: any site could send someone here, and
 // shouldn't deploy VMs or open pages in their name.
 
 useTitle('Open link · Quicksand')
 
 const route = useRoute()
 const router = useRouter()
-const templateId = computed(() => (typeof route.query.template === 'string' ? route.query.template : ''))
+const askedTemplate = typeof route.query.template === 'string' ? route.query.template : ''
 const url = computed(() => (typeof route.query.url === 'string' ? route.query.url : ''))
 
-const template = ref<Template>()
+// templates are those that open links; templateId is the one chosen.
+const templates = ref<Template[]>([])
+const templateId = ref('')
+const template = computed(() => templates.value.find((t) => t.id === templateId.value))
 const networks = ref<Network[]>([])
 const networkId = ref('')
 // mode is whether to open the link in a new VM or an existing one; vms are
@@ -51,19 +53,24 @@ const problem = computed(() => {
   }
   if (loading.value) return undefined
   if (mode.value === 'existing') return vmId.value ? undefined : 'Choose a VM.'
-  if (!templateId.value) return 'No template given.'
-  if (!template.value) return `There's no template "${templateId.value}".`
-  if (!template.value.opensURLs) return `${template.value.name} can't open links.`
+  if (!templates.value.length) return 'None of the templates can open links.'
+  if (!template.value) return 'Choose a template.'
   return template.value.quotaBlocked || template.value.error
 })
 
 onMounted(async () => {
   try {
     const [t, n, v] = await Promise.all([api.templates(), api.networks(), api.vms()])
-    template.value = t.find((t) => t.id === templateId.value)
+    templates.value = t.filter((t) => t.opensURLs)
+    // The template asked for, else the one last used here, else the first.
+    const last = loadLastTemplate()
+    templateId.value =
+      [askedTemplate, last].find((id) => id && templates.value.some((t) => t.id === id)) ??
+      templates.value[0]?.id ??
+      ''
     networks.value = n
-    // Running VMs that open links, those of the template first (newest
-    // first, as listed).
+    // Running VMs that open links, those of the chosen template first
+    // (newest first, as listed).
     vms.value = v
       .filter((vm) => vm.state === 'ready' && vm.power === 'running' && vm.launch?.opensURLs)
       .sort((a, b) => Number(b.templateId === templateId.value) - Number(a.templateId === templateId.value))
@@ -78,6 +85,26 @@ onMounted(async () => {
   }
 })
 
+// The template last opened a link in is remembered in this browser, to
+// choose it again when the link doesn't name one.
+const lastTemplateKey = 'quicksand.open.template'
+
+function loadLastTemplate() {
+  try {
+    return localStorage.getItem(lastTemplateKey) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function saveLastTemplate(id: string) {
+  try {
+    localStorage.setItem(lastTemplateKey, id)
+  } catch {
+    // Not remembered, which is fine.
+  }
+}
+
 async function open() {
   if (problem.value) return
   busy.value = true
@@ -89,6 +116,7 @@ async function open() {
       return
     }
     if (!template.value) return
+    saveLastTemplate(template.value.id)
     const vm = await api.deploy({
       templateId: template.value.id,
       name: '',
@@ -118,7 +146,7 @@ async function open() {
           <CardDescription>
             {{
               mode === 'new'
-                ? `This deploys a new ${template?.name ?? ''} VM and opens the link in it.`
+                ? 'This deploys a new VM and opens the link in it.'
                 : 'This opens the link in a new tab of a VM you already have.'
             }}
           </CardDescription>
@@ -163,16 +191,28 @@ async function open() {
               </SelectContent>
             </Select>
           </div>
-          <div v-else-if="template && mode === 'new'" class="flex items-center gap-3 text-sm">
-            <div class="bg-muted flex size-9 shrink-0 items-center justify-center rounded-md">
-              <TemplateIcon :icon="template.icon" :os="template.os" :class="template.icon ? 'size-6' : 'size-4'" />
-            </div>
-            <div class="min-w-0">
-              <p class="truncate font-medium">{{ template.name }}</p>
-              <p class="text-muted-foreground text-xs">
-                {{ template.cores }} CPUs · {{ formatMemory(template.memoryMiB) }}
-              </p>
-            </div>
+          <div v-else-if="!loading && templates.length" class="flex flex-col gap-1.5">
+            <Label for="open-template">Template</Label>
+            <Select v-model="templateId">
+              <SelectTrigger id="open-template" class="w-full">
+                <SelectValue placeholder="Choose a template">
+                  <span v-if="template" class="flex items-center gap-2">
+                    <TemplateIcon
+                      :icon="template.icon"
+                      :os="template.os"
+                      :class="template.icon ? 'size-4' : 'size-3.5'"
+                    />
+                    {{ template.name }}
+                  </span>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="t in templates" :key="t.id" :value="t.id">
+                  <TemplateIcon :icon="t.icon" :os="t.os" :class="t.icon ? 'size-4' : 'size-3.5'" />
+                  {{ t.name }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div v-if="template && mode === 'new' && networks.length > 1" class="flex flex-col gap-1.5">
             <Label for="open-network">Network</Label>

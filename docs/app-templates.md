@@ -175,13 +175,14 @@ one of the user's running VMs that can. There are three ways in:
 
 - **The browser extension** adds "Open in Quicksand" to the menu of links.
   See [extension.md](extension.md).
-- **The `/open` page**, `https://quicksand.example/open?template=chrome&url=<link>`
-  (with the link URL-encoded, and optionally `&network=<ID>` to choose the
-  network to start with), is what the extension uses, and works from
+- **The `/open` page**, `https://quicksand.example/open?url=<link>` (with
+  the link URL-encoded, and optionally `&template=<ID>` and `&network=<ID>`
+  to choose the template and network to start with), is what the extension uses, and works from
   anywhere: bookmarklets, other tools. It runs in the user's own Quicksand
   session (sending them to sign in first if needed) and shows the link. By
-  default it deploys a **New VM** of the template, on the network shown
-  (which they can change); **Existing VM** instead lists their running VMs
+  default it deploys a **New VM** of the template and on the network shown
+  (both of which they can change; without `template`, it's the one they
+  used last there, or else the first that opens links); **Existing VM** instead lists their running VMs
   that open links, those of the same template first. Nothing happens until
   they click **Open**, because any site could send someone there. Then it
   goes to the VM's console, which for a new VM shows the deployment and
