@@ -6,9 +6,9 @@ have a machine you can use from your browser. When you're done (or when
 its time runs out) it's destroyed. That's the whole idea: VMs you don't get
 attached to.
 
-It's meant for labs, testing, training, and anything else where
-people need a fresh Windows or Linux box often, and shouldn't need a
-Proxmox account (or your attention) to get one.
+It's meant for testing, training, malware analysis, and anything else where you need a fresh Windows or Linux box often.
+
+![Quicksand screenshot](docs/screenshot.png)
 
 ## What you get
 
