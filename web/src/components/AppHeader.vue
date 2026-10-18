@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, KeyRound, KeySquare, LogOut, Server, Shield } from '@lucide/vue'
+import { ChevronDown, KeyRound, KeySquare, LogOut, Shield } from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { api } from '@/api'
@@ -38,7 +38,7 @@ async function logout() {
   <header class="bg-background/80 sticky top-0 z-10 border-b backdrop-blur">
     <div class="mx-auto flex max-w-6xl items-center gap-4 px-4 py-2.5">
       <RouterLink to="/" class="flex items-center gap-2">
-        <Server class="size-4" />
+        <img src="/favicon.svg" alt="" class="size-5" />
         <span class="text-sm font-semibold">Quicksand</span>
       </RouterLink>
       <nav class="flex items-center gap-1">

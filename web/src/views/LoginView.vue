@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useTitle } from '@vueuse/core'
-import { CircleAlert, LogIn, Server } from '@lucide/vue'
+import { CircleAlert, LogIn } from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { errorMessage, type AuthMethods } from '@/api'
@@ -68,7 +68,7 @@ async function submit() {
     <Card class="w-full max-w-sm">
       <CardHeader>
         <div class="mb-2 flex items-center gap-2">
-          <Server class="size-5" />
+          <img src="/favicon.svg" alt="" class="size-6" />
           <span class="text-sm font-semibold">Quicksand</span>
         </div>
         <CardTitle>Sign in</CardTitle>
