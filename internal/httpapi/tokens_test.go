@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 
 	"quicksand/internal/auth"
+	"quicksand/internal/config"
 	"quicksand/internal/store"
 )
 
@@ -147,7 +148,7 @@ func TestAuditedStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	s := &Server{store: db}
+	s := &Server{cfg: &config.Config{}, store: db}
 	opened := make(chan struct{})
 	h := s.audited("agent.shell", func(w http.ResponseWriter, r *http.Request) {
 		auditDetail(r, "interactive")

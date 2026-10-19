@@ -30,6 +30,12 @@ type Config struct {
 	// SecureCookies marks session cookies Secure. Enable when Quicksand is
 	// served over HTTPS (directly or behind a proxy).
 	SecureCookies bool `json:"secureCookies"`
+	// TrustedProxies are the addresses (or CIDR ranges) of reverse proxies
+	// in front of Quicksand. Requests from them are taken to be for the
+	// client named in X-Forwarded-For (or X-Real-IP), which the audit log
+	// records instead of the proxy's address.
+	TrustedProxies []string `json:"trustedProxies,omitempty"`
+	trustedProxies []netip.Prefix
 	// TLS, if set, serves HTTPS with this certificate. Browsers only allow
 	// clipboard access and audio decoding on secure origins, so serve over
 	// HTTPS (here or via a reverse proxy) anywhere but localhost.
@@ -71,6 +77,17 @@ type Audit struct {
 
 // DefaultAuditRetention is how long audit log entries are kept by default.
 const DefaultAuditRetention = 365 * 24 * time.Hour
+
+// TrustedProxy reports whether addr is one of TrustedProxies.
+func (c *Config) TrustedProxy(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	for _, p := range c.trustedProxies {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
 
 // AuditRetention is how long audit log entries are kept; 0 is forever.
 func (c *Config) AuditRetention() time.Duration {
@@ -480,6 +497,17 @@ func (c *Config) validate() error {
 		if e.ExtendDuration == 0 {
 			e.ExtendDuration = Duration(24 * time.Hour)
 		}
+	}
+	for i, p := range c.TrustedProxies {
+		prefix, err := netip.ParsePrefix(p)
+		if err != nil {
+			addr, err2 := netip.ParseAddr(p)
+			if err2 != nil {
+				return fmt.Errorf("trustedProxies[%d]: %q isn't an IP address or CIDR range", i, p)
+			}
+			prefix = netip.PrefixFrom(addr, addr.BitLen())
+		}
+		c.trustedProxies = append(c.trustedProxies, prefix.Masked())
 	}
 	if c.TLS != nil && (c.TLS.Cert == "" || c.TLS.Key == "") {
 		return errors.New("tls.cert and tls.key are both required")

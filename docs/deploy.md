@@ -208,6 +208,24 @@ browsers warn until it's accepted. To use one from your own CA, replace
 `/etc/quicksand/tls.crt` (with intermediates appended) and `tls.key`
 (group `quicksand`, mode 0640) and `systemctl restart quicksand`.
 
+## Behind a reverse proxy
+
+Behind a reverse proxy, every request comes from the proxy, so the audit
+log would show its address for everyone. List the proxy in
+`trustedProxies` (addresses or CIDR ranges) and the log shows each client's
+own address, from the `X-Forwarded-For` header the proxy adds (or
+`X-Real-IP`, if that's all it sends):
+
+```json
+"trustedProxies": ["127.0.0.1", "::1"]
+```
+
+List the address requests reach Quicksand *from*: `127.0.0.1` for a proxy
+on the same host, or, in Docker with `ports:` mappings, the Docker
+network's gateway (e.g. `172.17.0.1`). Headers from anywhere else are
+ignored, as anyone could send them. The proxy must also pass WebSocket
+upgrades through, for consoles and shells.
+
 ## Operating
 
 ```sh

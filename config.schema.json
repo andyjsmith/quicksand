@@ -24,6 +24,12 @@
       "description": "Mark session cookies Secure. Enable when Quicksand is served over HTTPS (directly or behind a proxy).",
       "default": false
     },
+    "trustedProxies": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Addresses or CIDR ranges of reverse proxies in front of Quicksand. Requests from them are logged in the audit log as coming from the client named in X-Forwarded-For (or X-Real-IP). Headers from anywhere else are ignored, as clients could make them up.",
+      "examples": [["127.0.0.1", "::1"], ["10.0.0.5", "172.16.0.0/12"]]
+    },
     "tls": {
       "type": "object",
       "description": "Serve HTTPS with this certificate. Browsers only allow clipboard access and audio decoding on secure origins, so serve over HTTPS (here or via a reverse proxy) anywhere but localhost.",

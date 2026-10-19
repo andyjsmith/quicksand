@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 
@@ -102,19 +103,65 @@ func (s *Server) audit(r *http.Request, e store.AuditEntry) {
 		u := auth.FromContext(r.Context())
 		e.UserID, e.Username = u.ID, u.Username
 	}
-	e.IP = clientIP(r)
+	e.IP = clientIP(r, s.cfg.TrustedProxy)
 	// The request's context may already be ending (as when a stream starts).
 	if err := s.store.AddAudit(context.WithoutCancel(r.Context()), e); err != nil {
 		slog.Error("audit log", "action", e.Action, "err", err)
 	}
 }
 
-func clientIP(r *http.Request) string {
+// clientIP is the address of the request's client. Behind trusted
+// proxies, that's the last address in X-Forwarded-For that isn't one of
+// theirs: read from the right, as each proxy appends the address it got
+// the request from, and anything further left came from the client and can
+// be made up. Without X-Forwarded-For, it's X-Real-IP.
+func clientIP(r *http.Request, trusted func(netip.Addr) bool) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
-	return host
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return host
+	}
+	addr = addr.Unmap()
+	if !trusted(addr) {
+		return addr.String()
+	}
+	var hops []string
+	for _, h := range r.Header.Values("X-Forwarded-For") {
+		hops = append(hops, strings.Split(h, ",")...)
+	}
+	if len(hops) == 0 {
+		if real, err := parseForwarded(r.Header.Get("X-Real-IP")); err == nil {
+			return real.String()
+		}
+		return addr.String()
+	}
+	for i := len(hops) - 1; i >= 0; i-- {
+		hop, err := parseForwarded(hops[i])
+		if err != nil {
+			// Not an address: whoever sent it, the last proxy is as far
+			// back as can be told.
+			break
+		}
+		addr = hop
+		if !trusted(hop) {
+			break
+		}
+	}
+	return addr.String()
+}
+
+// parseForwarded parses an address from a forwarding header, which may
+// have a port (and IPv6 addresses brackets).
+func parseForwarded(s string) (netip.Addr, error) {
+	s = strings.TrimSpace(s)
+	if ap, err := netip.ParseAddrPort(s); err == nil {
+		return ap.Addr().Unmap(), nil
+	}
+	addr, err := netip.ParseAddr(strings.TrimSuffix(strings.TrimPrefix(s, "["), "]"))
+	return addr.Unmap(), err
 }
 
 // auditWriter calls start with the status when the response starts,
