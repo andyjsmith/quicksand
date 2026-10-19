@@ -57,15 +57,14 @@ in the `data` volume, at `/var/lib/quicksand` (the default `"database":
 
 Some differences from the packages:
 
-- **Listen address.** The container needs `"listen": ":8484"` (or this
-  host's address) rather than `127.0.0.1`. Ports below 1024 aren't
-  available to its user, so serve on 8484, or put a reverse proxy in front.
-- **Agent network.** The compose file uses host networking, so Quicksand
-  connects to agents from the host's own address on the agent network,
-  `agent.network.serverIP`, exactly as an installed server would. Configure
-  that address on the host as for any Quicksand host
-  ([proxmox-setup.md](proxmox-setup.md#64-the-quicksand-host)). Without the
-  agent, `ports: ["8484:8484"]` can replace `network_mode: host`.
+- **Listen address.** The container needs `"listen": ":8484"` rather than
+  `127.0.0.1`. Its user can't bind ports below 1024, so it listens on 8484;
+  change the published port in `compose.yml` (e.g. `"443:8484"`) to serve
+  it elsewhere on the host.
+- **Agent network.** The Docker host needs the agent network address,
+  `agent.network.serverIP`, as for any Quicksand host
+  ([proxmox-setup.md](proxmox-setup.md#64-the-quicksand-host)): connections
+  to agents leave the host from it.
 - **HTTPS.** No certificate is generated. Add one to `./config` and a `tls`
   section pointing at it (`/etc/quicksand/tls.crt` and `tls.key`), or
   make a self-signed one with:

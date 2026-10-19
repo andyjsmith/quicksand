@@ -1,7 +1,6 @@
 # Runs the Quicksand server from its published image. See docs/deploy.md.
 #
-# Put config.json (with "listen": ":8484" or another address on this host),
-# the icons folder and any TLS certificate in ./config, readable by user ID
+# Put config.json (with "listen": ":8484"), the icons folder and any TLS certificate in ./config, readable by user ID
 # 10001, then:
 #
 #   docker compose up -d
@@ -10,10 +9,8 @@ services:
   quicksand:
     image: ghcr.io/andyjsmith/quicksand:latest
     restart: unless-stopped
-    # Host networking, so Quicksand connects to agents from its own address
-    # on the agent network (agent.network.serverIP), which this host must
-    # have. Without agents, ports: ["8484:8484"] works instead.
-    network_mode: host
+    ports:
+      - "8484:8484"
     volumes:
       - ./config:/etc/quicksand:ro
       - data:/var/lib/quicksand
